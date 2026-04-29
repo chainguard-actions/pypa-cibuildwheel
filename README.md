@@ -1,8 +1,12 @@
-# cibuildwheel
+# pypa/cibuildwheel
 
-Build Python wheels on CI with minimal configuration.
+Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at [https://github.com/pypa/cibuildwheel](https://github.com/pypa/cibuildwheel).
 
-This is a hardened version of [pypa/cibuildwheel](https://github.com/pypa/cibuildwheel) v2.23.4.
+## Versions
+
+| Version | Tag | Upstream commit |
+|---------|-----|-----------------|
+| v2.23.4 | [`v2.23.4`](https://github.com/chainguard-actions/cibuildwheel/tree/v2.23.4) | — |
 
 ## Privacy
 
