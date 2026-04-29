@@ -1,5 +1,6 @@
 {
   "owner": "pypa",
   "name": "cibuildwheel",
-  "visibility": ""
+  "visibility": "internal",
+  "description": "🎡 Build Python wheels for all the platforms with minimal configuration. "
 }
