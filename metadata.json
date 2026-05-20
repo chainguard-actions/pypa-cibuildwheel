@@ -1,7 +1,0 @@
-{
-  "owner": "pypa",
-  "name": "cibuildwheel",
-  "visibility": "internal",
-  "description": "🎡 Build Python wheels for all the platforms with minimal configuration. ",
-  "block_publish": false
-}
