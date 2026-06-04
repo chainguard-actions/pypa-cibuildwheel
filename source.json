@@ -1,6 +1,11 @@
 {
   "owner": "pypa",
   "repo": "cibuildwheel",
-  "version": "",
-  "url": "https://github.com/pypa/cibuildwheel"
+  "version": "v3.4.1",
+  "commit_sha": "8d2b08b68458a16aeb24b64e68a09ab1c8e82084",
+  "url": "https://github.com/pypa/cibuildwheel",
+  "policy_sha": "ff50f15e4b79bfbf764dafdfd2579175a6ea9771",
+  "test_policy_sha": "843adf9e4b8f85d0c08b27b9d0b09dd094b54702",
+  "test_agent_version": "1",
+  "harden_agent_version": "1"
 }
