@@ -1,6 +1,6 @@
 # pypa/cibuildwheel
 
-🎡 Build Python wheels for all the platforms with minimal configuration. 
+Installs and runs cibuildwheel on the current runner
 
 Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at [https://github.com/pypa/cibuildwheel](https://github.com/pypa/cibuildwheel).
 
