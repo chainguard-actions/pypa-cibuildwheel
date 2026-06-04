@@ -110,14 +110,10 @@ runs:
         # Prepend '& ' so PowerShell executes the quoted binary path
         cmd_pwsh = "& " + " ".join(pwsh_quote(arg) for arg in cmd_args)
 
-        def sanitize(value):
-            # Strip newlines to prevent GITHUB_OUTPUT injection
-            return str(value).replace("\n", "").replace("\r", "")
-
         with open(os.environ["GITHUB_OUTPUT"], "at") as f:
-            f.write(f"prepend-path={sanitize(clean_bin_path)}\n")
-            f.write(f"cmd-bash={sanitize(cmd_bash)}\n")
-            f.write(f"cmd-pwsh={sanitize(cmd_pwsh)}\n")
+            f.write(f"prepend-path={clean_bin_path}\n")
+            f.write(f"cmd-bash={cmd_bash}\n")
+            f.write(f"cmd-pwsh={cmd_pwsh}\n")
 
         print("::endgroup::")
         EOF
