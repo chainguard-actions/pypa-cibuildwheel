@@ -8,33 +8,39 @@
 
 **Harden Agent Version:** `1`
 
-Action **pypa--cibuildwheel/v4.0.0** was hardened automatically. 1 finding(s) were identified and resolved across 2 iteration(s).
+Action **pypa--cibuildwheel/v4.0.0** was hardened automatically. 2 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
 ### github-env-injection (severity: high)
 
-The 'cibw' step writes attacker-controlled input values to $GITHUB_OUTPUT without sanitization. The Python heredoc constructs cmd_bash and cmd_pwsh from INPUT_PACKAGE_DIR, INPUT_OUTPUT_DIR, INPUT_CONFIG_FILE, and INPUT_ONLY (all mapped from inputs.* via env:), then writes them directly with f.write(f"cmd-bash={cmd_bash}\n") and f.write(f"cmd-pwsh={cmd_pwsh}\n"). No printf '%s' ... | tr -d '\n\r' sanitization is applied before writing. An attacker-controlled input containing newline characters could inject additional key=value pairs into $GITHUB_OUTPUT, potentially overwriting subsequent step outputs.
+The 'cibw' run step writes values derived from inputs.* (package-dir, output-dir, config-file, only) to $GITHUB_OUTPUT via Python without the required sanitization step (printf '%s' ... | tr -d '\n\r'). The inputs are passed as env vars (INPUT_PACKAGE_DIR, INPUT_OUTPUT_DIR, INPUT_CONFIG_FILE, INPUT_ONLY), assembled into cmd_bash and cmd_pwsh via shlex.join/pwsh_quote, then written directly to GITHUB_OUTPUT with f.write(...). An attacker-controlled input containing newlines could inject arbitrary key=value pairs into GITHUB_OUTPUT.
 
 Locations:
 
-- `action.yml:88`
+- `action.yml:107`
+
+### suspicious-run-content (severity: high)
+
+Sub-check: eval-dynamic. The bash run step executes 'eval "$CIBW_CMD_BASH"' where CIBW_CMD_BASH is set from the step output cmd-bash, which is a shell command string constructed from user-controlled inputs (package-dir, output-dir, config-file, only). This matches the eval-dynamic pattern 'eval\s+[\x60$]' and dynamically executes a command string derived from attacker-controlled values.
+
+Locations:
+
+- `action.yml:119`
 
 ## Iteration Notes
 
 ### Iteration 1
 
-**Fixes applied:** github-env-injection
+**Fixes applied:** github-env-injection, suspicious-run-content
 
 **Notes:**
 
-Added a `sanitize()` helper function in the Python heredoc within the 'cibw' step that strips newline (\n) and carriage-return (\r) characters from values before writing them to $GITHUB_OUTPUT. All three outputs (prepend-path, cmd-bash, cmd-pwsh) are now passed through `sanitize()` before being written, preventing attacker-controlled input values from injecting additional key=value pairs into $GITHUB_OUTPUT via embedded newlines.
+Fixed both findings in action.yml:
 
-### Iteration 2
+1. **github-env-injection**: Added a `sanitize()` helper function in the Python heredoc that strips `\r` and `\n` from all values before writing to `$GITHUB_OUTPUT`. All three outputs (`prepend-path`, `cmd-pwsh`, `args-file`) are now sanitized. The old `cmd-bash` output (a shell-quoted string built from user inputs) was removed entirely.
 
-**Fixes applied:** suspicious-run-content
+2. **suspicious-run-content (eval-dynamic)**: Eliminated `eval "$CIBW_CMD_BASH"` by replacing the shell-string approach with a NUL-delimited args file. The Python script now writes command arguments as NUL-separated bytes to `$RUNNER_TEMP/cibw_args` and exposes the file path as the `args-file` output. The bash step reads the file with `mapfile -d '' cmd_args < "$CIBW_ARGS_FILE"` and executes `"${cmd_args[@]}"` — a direct array expansion that never passes user-controlled values through shell interpretation.
 
-**Notes:**
-
-Eliminated the eval-dynamic pattern by replacing `eval "$CIBW_CMD_BASH"` with a direct bash array invocation. The Python setup step now writes the cibw binary path as a `cibw-bin` output instead of a shell-joined command string. The bash run step constructs a bash array (`args=(...)`) from environment variables and executes it with `"${args[@]}"` — no eval, no dynamic command string evaluation. All user inputs are passed via the `env:` block and referenced as plain shell variables. Also removed the now-unused `import shlex` statement.
+The Windows PowerShell step retains `Invoke-Expression` with `cmd-pwsh` (which is sanitized), as that is the existing pattern for Windows and was not flagged as a finding.
 

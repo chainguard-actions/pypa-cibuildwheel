@@ -54,6 +54,7 @@ runs:
         # Install cibuildwheel and build the command line
         "$PYTHON" -u << "EOF"
         import os
+        import shlex
         import shutil
         import sys
         import venv
@@ -122,14 +123,19 @@ runs:
         # Prepend '& ' so PowerShell executes the quoted binary path
         cmd_pwsh = "& " + " ".join(pwsh_quote(arg) for arg in cmd_args)
 
+        # Write cmd args to a NUL-delimited file so bash can read them safely
+        # without eval or shell interpretation
+        args_file = Path(os.environ["RUNNER_TEMP"]) / "cibw_args"
+        args_file.write_bytes(b"\x00".join(a.encode() for a in cmd_args))
+
         def sanitize(value):
-            # Strip newline/carriage-return characters to prevent GITHUB_OUTPUT injection
-            return str(value).replace("\n", "").replace("\r", "")
+            """Strip newlines to prevent GITHUB_OUTPUT injection."""
+            return str(value).replace("\r", "").replace("\n", "")
 
         with open(os.environ["GITHUB_OUTPUT"], "at") as f:
             f.write(f"prepend-path={sanitize(clean_bin_path)}\n")
-            f.write(f"cibw-bin={sanitize(cibw_bin)}\n")
             f.write(f"cmd-pwsh={sanitize(cmd_pwsh)}\n")
+            f.write(f"args-file={sanitize(args_file)}\n")
 
         print("::endgroup::")
         EOF
@@ -142,28 +148,16 @@ runs:
         INPUT_ONLY: ${{ inputs.only }}
         INPUT_EXTRAS: ${{ inputs.extras }}
     # Redirecting stderr to stdout to fix interleaving issue in Actions.
+    # Read NUL-delimited args from file to avoid eval and shell injection.
     - run: |
         export PATH="$CIBW_PREPEND_PATH:$PATH"
-        args=("$CIBW_BIN" "$INPUT_PACKAGE_DIR")
-        if [ -n "$INPUT_OUTPUT_DIR" ]; then
-          args+=(--output-dir "$INPUT_OUTPUT_DIR")
-        fi
-        if [ -n "$INPUT_CONFIG_FILE" ]; then
-          args+=(--config-file "$INPUT_CONFIG_FILE")
-        fi
-        if [ -n "$INPUT_ONLY" ]; then
-          args+=(--only "$INPUT_ONLY")
-        fi
-        "${args[@]}" 2>&1
+        mapfile -d '' cmd_args < "$CIBW_ARGS_FILE"
+        "${cmd_args[@]}" 2>&1
       shell: bash
       if: runner.os != 'Windows'
       env:
         CIBW_PREPEND_PATH: ${{ steps.cibw.outputs.prepend-path }}
-        CIBW_BIN: ${{ steps.cibw.outputs.cibw-bin }}
-        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
-        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
-        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
-        INPUT_ONLY: ${{ inputs.only }}
+        CIBW_ARGS_FILE: ${{ steps.cibw.outputs.args-file }}
     # Windows needs powershell to interact nicely with Meson
     - run: |
         $env:PATH = "$env:CIBW_PREPEND_PATH;$env:PATH"
