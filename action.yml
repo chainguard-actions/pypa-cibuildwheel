@@ -24,16 +24,31 @@ inputs:
 branding:
   icon: package
   color: yellow
-
 runs:
   using: composite
   steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
     - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       id: python
       with:
         python-version: "3.11 - 3.14"
         update-environment: false
-
     - id: cibw
       run: |
         # Install cibuildwheel and build the command line
@@ -110,10 +125,23 @@ runs:
         # Prepend '& ' so PowerShell executes the quoted binary path
         cmd_pwsh = "& " + " ".join(pwsh_quote(arg) for arg in cmd_args)
 
+        # Write the commands to script files so they can be executed directly
+        # without eval/Invoke-Expression (avoids script injection).
+        runner_temp = Path(os.environ["RUNNER_TEMP"])
+        bash_script = runner_temp / "cibw_run.sh"
+        pwsh_script = runner_temp / "cibw_run.ps1"
+
+        bash_script.write_text(f"#!/bin/sh\n{cmd_bash} 2>&1\n")
+        pwsh_script.write_text(f"{cmd_pwsh}\n")
+
         with open(os.environ["GITHUB_OUTPUT"], "at") as f:
-            f.write(f"prepend-path={clean_bin_path}\n")
-            f.write(f"cmd-bash={cmd_bash}\n")
-            f.write(f"cmd-pwsh={cmd_pwsh}\n")
+            # prepend-path is not user-controlled; strip newlines as a precaution
+            safe_prepend = str(clean_bin_path).replace("\n", "").replace("\r", "")
+            f.write(f"prepend-path={safe_prepend}\n")
+            safe_bash_script = str(bash_script).replace("\n", "").replace("\r", "")
+            f.write(f"bash-script={safe_bash_script}\n")
+            safe_pwsh_script = str(pwsh_script).replace("\n", "").replace("\r", "")
+            f.write(f"pwsh-script={safe_pwsh_script}\n")
 
         print("::endgroup::")
         EOF
@@ -125,23 +153,21 @@ runs:
         INPUT_CONFIG_FILE: ${{ inputs.config-file }}
         INPUT_ONLY: ${{ inputs.only }}
         INPUT_EXTRAS: ${{ inputs.extras }}
-
     # Redirecting stderr to stdout to fix interleaving issue in Actions.
     - run: |
         export PATH="$CIBW_PREPEND_PATH:$PATH"
-        eval "$CIBW_CMD_BASH" 2>&1
+        sh "$CIBW_BASH_SCRIPT"
       shell: bash
       if: runner.os != 'Windows'
       env:
         CIBW_PREPEND_PATH: ${{ steps.cibw.outputs.prepend-path }}
-        CIBW_CMD_BASH: ${{ steps.cibw.outputs.cmd-bash }}
-
+        CIBW_BASH_SCRIPT: ${{ steps.cibw.outputs.bash-script }}
     # Windows needs powershell to interact nicely with Meson
     - run: |
         $env:PATH = "$env:CIBW_PREPEND_PATH;$env:PATH"
-        Invoke-Expression $env:CIBW_CMD_PWSH
+        & "$env:CIBW_PWSH_SCRIPT"
       shell: pwsh
       if: runner.os == 'Windows'
       env:
         CIBW_PREPEND_PATH: ${{ steps.cibw.outputs.prepend-path }}
-        CIBW_CMD_PWSH: ${{ steps.cibw.outputs.cmd-pwsh }}
+        CIBW_PWSH_SCRIPT: ${{ steps.cibw.outputs.pwsh-script }}
