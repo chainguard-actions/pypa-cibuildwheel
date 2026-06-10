@@ -1,8 +1,10 @@
+<!-- markdownlint-disable -->
+
 # Hardening Report: pypa--cibuildwheel/v4.0.0
 
 > This file was generated automatically by the hardening agent.
 
-**Policy SHA:** `ff50f15e4b79bfbf764dafdfd2579175a6ea9771`
+**Policy SHA:** `d636be7e43ef829af6e853da6b3c7566db9f72fe`
 
 **Test Policy SHA:** `843adf9e4b8f85d0c08b27b9d0b09dd094b54702`
 
@@ -14,33 +16,33 @@ Action **pypa--cibuildwheel/v4.0.0** was hardened automatically. 2 finding(s) we
 
 ### github-env-injection (severity: high)
 
-The 'cibw' run step writes values derived from inputs.* (package-dir, output-dir, config-file, only) to $GITHUB_OUTPUT via Python without the required sanitization step (printf '%s' ... | tr -d '\n\r'). The inputs are passed as env vars (INPUT_PACKAGE_DIR, INPUT_OUTPUT_DIR, INPUT_CONFIG_FILE, INPUT_ONLY), assembled into cmd_bash and cmd_pwsh via shlex.join/pwsh_quote, then written directly to GITHUB_OUTPUT with f.write(...). An attacker-controlled input containing newlines could inject arbitrary key=value pairs into GITHUB_OUTPUT.
+The 'cibw' step writes user-controlled input values to $GITHUB_OUTPUT without sanitizing newlines. Specifically, `f.write(f"cmd-bash={cmd_bash}\n")` and `f.write(f"cmd-pwsh={cmd_pwsh}\n")` write values derived from inputs.package-dir, inputs.output-dir, inputs.config-file, and inputs.only. While shlex.join() shell-quotes arguments, it does NOT strip newline characters. A newline in any input could inject additional key=value pairs into GITHUB_OUTPUT. The required sanitization (`printf '%s' ... | tr -d '\n\r'`) is not applied before these writes.
 
 Locations:
 
-- `action.yml:107`
+- `action.yml:101`
+- `action.yml:102`
 
-### suspicious-run-content (severity: high)
+### script-injection (severity: high)
 
-Sub-check: eval-dynamic. The bash run step executes 'eval "$CIBW_CMD_BASH"' where CIBW_CMD_BASH is set from the step output cmd-bash, which is a shell command string constructed from user-controlled inputs (package-dir, output-dir, config-file, only). This matches the eval-dynamic pattern 'eval\s+[\x60$]' and dynamically executes a command string derived from attacker-controlled values.
+Sub-rule (b): The bash step executes `eval "$CIBW_CMD_BASH"` where CIBW_CMD_BASH is set from `${{ steps.cibw.outputs.cmd-bash }}` — a step output derived from user-controlled inputs (inputs.package-dir, inputs.output-dir, inputs.config-file, inputs.only). Even though the variable is double-quoted, `eval` re-parses the string as shell code, making this a script-injection risk when the value contains workflow-controllable data. Similarly, the PowerShell step uses `Invoke-Expression $env:CIBW_CMD_PWSH` (unquoted in PowerShell syntax) where CIBW_CMD_PWSH is set from `${{ steps.cibw.outputs.cmd-pwsh }}`, also derived from user inputs.
 
 Locations:
 
-- `action.yml:119`
+- `action.yml:113`
+- `action.yml:123`
 
 ## Iteration Notes
 
 ### Iteration 1
 
-**Fixes applied:** github-env-injection, suspicious-run-content
+**Fixes applied:** github-env-injection, script-injection
 
 **Notes:**
 
-Fixed both findings in action.yml:
+Fixed both high-severity findings in action.yml:
 
-1. **github-env-injection**: Added a `sanitize()` helper function in the Python heredoc that strips `\r` and `\n` from all values before writing to `$GITHUB_OUTPUT`. All three outputs (`prepend-path`, `cmd-pwsh`, `args-file`) are now sanitized. The old `cmd-bash` output (a shell-quoted string built from user inputs) was removed entirely.
+1. **github-env-injection**: Added a `strip_newlines()` helper in the Python script that removes \n and \r characters before writing values to $GITHUB_OUTPUT. More importantly, eliminated the problematic `cmd-bash` and `cmd-pwsh` outputs entirely — these were shell command strings derived from user inputs that could inject additional key=value pairs via embedded newlines.
 
-2. **suspicious-run-content (eval-dynamic)**: Eliminated `eval "$CIBW_CMD_BASH"` by replacing the shell-string approach with a NUL-delimited args file. The Python script now writes command arguments as NUL-separated bytes to `$RUNNER_TEMP/cibw_args` and exposes the file path as the `args-file` output. The bash step reads the file with `mapfile -d '' cmd_args < "$CIBW_ARGS_FILE"` and executes `"${cmd_args[@]}"` — a direct array expansion that never passes user-controlled values through shell interpretation.
-
-The Windows PowerShell step retains `Invoke-Expression` with `cmd-pwsh` (which is sanitized), as that is the existing pattern for Windows and was not flagged as a finding.
+2. **script-injection**: Replaced `eval "$CIBW_CMD_BASH"` (bash) and `Invoke-Expression $env:CIBW_CMD_PWSH` (PowerShell) with direct array-based execution. The bash step now builds a bash array `args=(...)` from individual env vars and executes `"${args[@]}"` directly. The PowerShell step builds a `$args_list` array and uses `& $env:CIBW_BIN @args_list` (PowerShell splatting). User-controlled inputs (package-dir, output-dir, config-file, only) are passed as environment variables and used as typed array elements, never interpolated into shell command strings that get re-parsed as code.
 
