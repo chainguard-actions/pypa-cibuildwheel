@@ -1,10 +1,14 @@
+<!-- markdownlint-disable -->
+
 # Hardening Report: pypa--cibuildwheel/v2.23.4
 
 > This file was generated automatically by the hardening agent.
 
-**Policy SHA:** `c40cfe5fa14e08549b1b988e7e5a26da4816abf0`
+**Policy SHA:** `d636be7e43ef829af6e853da6b3c7566db9f72fe`
 
-**Test Policy SHA:** `f2e7d85641cde4267138117189b8eba7ba2bfbde`
+**Test Policy SHA:** `843adf9e4b8f85d0c08b27b9d0b09dd094b54702`
+
+**Harden Agent Version:** `1`
 
 Action **pypa--cibuildwheel/v2.23.4** was hardened automatically. 4 finding(s) were identified and resolved across 1 iteration(s).
 
@@ -12,20 +16,46 @@ Action **pypa--cibuildwheel/v2.23.4** was hardened automatically. 4 finding(s) w
 
 ### unpinned-uses (severity: high)
 
-action.yml uses `actions/setup-python@v5` — the ref `@v5` is a mutable tag, not a pinned 40-character commit SHA. This exposes the action to supply-chain attacks if the upstream tag is moved or compromised. It should be pinned to a full SHA, e.g. `actions/setup-python@<40-char-sha> # v5`.
+The action uses `actions/setup-python@v5` with a mutable tag reference instead of a pinned 40-character SHA commit hash. This is vulnerable to supply-chain attacks if the tag is moved to a different commit.
 
 Locations:
 
-- `action.yml:28`
+- `action.yml:27`
 
 ### script-injection (severity: high)
 
-Two `run:` steps directly interpolate user-supplied `inputs.*` expressions into shell command strings without first assigning them to environment variables. Specifically, `${{ inputs.package-dir }}`, `${{ inputs.output-dir }}`, `${{ inputs.config-file }}`, and `${{ inputs.only }}` are embedded directly in the bash and pwsh run blocks. A caller could supply a value containing shell metacharacters (e.g. `"; malicious-command #`) to achieve arbitrary command execution. These inputs should be passed via `env:` variables and referenced as `$ENV_VAR` in the shell script instead.
+Sub-rule (a): Multiple ${{ }} expressions are directly interpolated inside run: shell command strings without going through env: variables.
+
+In the 'cibw' step (bash heredoc):
+- Line 35: `"${{ steps.python.outputs.python-path }}"` is used directly as the shell command to invoke.
+- Line 53: `r"${{ github.action_path }}"` is interpolated into the Python script string inside the heredoc.
+- Line 56: `Path(r"${{ runner.temp }}")` is interpolated into the Python script string inside the heredoc.
+
+In the bash run step (Linux/macOS):
+- Line 68: `"${{ steps.cibw.outputs.cibw-path }}"` used directly as the command.
+- Line 69: `"${{ inputs.package-dir }}"` — attacker-controlled input directly interpolated.
+- Lines 70-72: `${{ inputs.output-dir ... }}`, `${{ inputs.config-file ... }}`, `${{ inputs.only ... }}` — attacker-controlled inputs directly interpolated.
+
+In the PowerShell run step (Windows):
+- Lines 77-82: Same set of expressions (`steps.cibw.outputs.cibw-path`, `inputs.package-dir`, `inputs.output-dir`, `inputs.config-file`, `inputs.only`) directly interpolated.
+
+Any ${{ ... }} expression inside a run: block is a script-injection risk because YAML template substitution happens before the shell ever sees the string, allowing injection of shell metacharacters.
 
 Locations:
 
+- `action.yml:35`
+- `action.yml:53`
+- `action.yml:56`
 - `action.yml:68`
+- `action.yml:69`
+- `action.yml:70`
+- `action.yml:71`
+- `action.yml:72`
+- `action.yml:77`
+- `action.yml:78`
 - `action.yml:79`
+- `action.yml:80`
+- `action.yml:81`
 
 ### static-inline-injection (severity: high)
 
@@ -51,5 +81,9 @@ Locations:
 
 **Notes:**
 
-1. Pinned actions/setup-python@v5 to full SHA a26af69be951a213d495a4c3e4e4022e16d87065 (SHA sourced from another hardened action in the repo). 2. Fixed script injection in both bash (line 68) and pwsh (line 79) run blocks by moving all inputs.* expressions (package-dir, output-dir, config-file, only) into env: blocks as INPUT_PACKAGE_DIR, INPUT_OUTPUT_DIR, INPUT_CONFIG_FILE, INPUT_ONLY. Shell scripts now use array-based argument construction referencing plain environment variables, eliminating shell metacharacter injection risk.
+1. Pinned actions/setup-python@v5 to SHA a26af69be951a213d495a4c3e4e4022e16d87065.
+2. Fixed script-injection in the 'cibw' bash heredoc step: moved PYTHON_PATH, ACTION_PATH, RUNNER_TEMP_PATH to env: block; Python code now reads ACTION_PATH and RUNNER_TEMP_PATH via os.environ[] instead of inline ${{ }} expressions.
+3. Fixed script-injection in the bash run step (Linux/macOS): moved all ${{ }} expressions (cibw-path, package-dir, output-dir, config-file, only) to env: block; rewrote script to build args array using env vars with conditional checks.
+4. Fixed script-injection in the PowerShell run step (Windows): same env: approach; rewrote script to build PowerShell args array using $env: variables.
+5. The static-inline-injection findings for inputs.package-dir in both bash and PowerShell steps are resolved by the same env: fixes.
 

@@ -20,21 +20,40 @@ inputs:
 branding:
   icon: package
   color: yellow
-
 runs:
   using: composite
   steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
     # Set up the version of Python that supports pyodide
     - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
       id: python
       with:
         python-version: "3.12"
         update-environment: false
-
     - id: cibw
+      env:
+        PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        ACTION_PATH: ${{ github.action_path }}
+        RUNNER_TEMP_PATH: ${{ runner.temp }}
       run: |
         # Install cibuildwheel
-        "${{ steps.python.outputs.python-path }}" -u << "EOF"
+        "$PYTHON_PATH" -u << "EOF"
         import os
         import shutil
         import sys
@@ -54,11 +73,11 @@ runs:
             def post_setup(self, context):
                 super().post_setup(context)
                 self.bin_path = Path(context.env_exe).parent
-                run([sys.executable, "-m", "pip", "--python", context.env_exe, "install", r"${{ github.action_path }}"], check=True)
+                run([sys.executable, "-m", "pip", "--python", context.env_exe, "install", os.environ["ACTION_PATH"]], check=True)
 
 
         print("::group::Install cibuildwheel")
-        venv_path = Path(r"${{ runner.temp }}") / "cibw"
+        venv_path = Path(os.environ["RUNNER_TEMP_PATH"]) / "cibw"
         if venv_path.exists():
             shutil.rmtree(venv_path)
         builder = EnvBuilder()
@@ -69,50 +88,34 @@ runs:
         print("::endgroup::")
         EOF
       shell: bash
-
     # Redirecting stderr to stdout to fix interleaving issue in Actions.
     - env:
         CIBW_PATH: ${{ steps.cibw.outputs.cibw-path }}
-        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
-        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
-        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
-        INPUT_ONLY: ${{ inputs.only }}
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+        CONFIG_FILE: ${{ inputs.config-file }}
+        ONLY: ${{ inputs.only }}
       run: |
-        args=("$CIBW_PATH" "$INPUT_PACKAGE_DIR")
-        if [ -n "$INPUT_OUTPUT_DIR" ]; then
-          args+=(--output-dir "$INPUT_OUTPUT_DIR")
-        fi
-        if [ -n "$INPUT_CONFIG_FILE" ]; then
-          args+=(--config-file "$INPUT_CONFIG_FILE")
-        fi
-        if [ -n "$INPUT_ONLY" ]; then
-          args+=(--only "$INPUT_ONLY")
-        fi
-        "${args[@]}" 2>&1
+        args=()
+        args+=("$PACKAGE_DIR")
+        if [ -n "$OUTPUT_DIR" ]; then args+=(--output-dir "$OUTPUT_DIR"); fi
+        if [ -n "$CONFIG_FILE" ]; then args+=(--config-file "$CONFIG_FILE"); fi
+        if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
+        "$CIBW_PATH" "${args[@]}" 2>&1
       shell: bash
       if: runner.os != 'Windows'
-
     # Windows needs powershell to interact nicely with Meson
     - env:
         CIBW_PATH: ${{ steps.cibw.outputs.cibw-path }}
-        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
-        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
-        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
-        INPUT_ONLY: ${{ inputs.only }}
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+        CONFIG_FILE: ${{ inputs.config-file }}
+        ONLY: ${{ inputs.only }}
       run: |
-        $args = @($env:CIBW_PATH, $env:INPUT_PACKAGE_DIR)
-        if ($env:INPUT_OUTPUT_DIR -ne '') {
-          $args += '--output-dir'
-          $args += $env:INPUT_OUTPUT_DIR
-        }
-        if ($env:INPUT_CONFIG_FILE -ne '') {
-          $args += '--config-file'
-          $args += $env:INPUT_CONFIG_FILE
-        }
-        if ($env:INPUT_ONLY -ne '') {
-          $args += '--only'
-          $args += $env:INPUT_ONLY
-        }
-        & $args[0] $args[1..($args.Length-1)]
+        $args = @($env:PACKAGE_DIR)
+        if ($env:OUTPUT_DIR -ne '') { $args += '--output-dir', $env:OUTPUT_DIR }
+        if ($env:CONFIG_FILE -ne '') { $args += '--config-file', $env:CONFIG_FILE }
+        if ($env:ONLY -ne '') { $args += '--only', $env:ONLY }
+        & $env:CIBW_PATH @args
       shell: pwsh
       if: runner.os == 'Windows'
