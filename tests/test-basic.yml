@@ -1,0 +1,54 @@
+name: Test cibuildwheel basic usage
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run cibuildwheel action
+        id: cibw_action
+        uses: .
+        continue-on-error: true
+        with:
+          package-dir: ${{ github.workspace }}/pristine/pypa--cibuildwheel/v4.1.0/tests/fixtures/minimal-package
+          output-dir: /tmp/wheelhouse-test
+          config-file: ${{ github.workspace }}/pristine/pypa--cibuildwheel/v4.1.0/tests/fixtures/minimal-package/pyproject.toml
+        env:
+          CIBW_SKIP: "*"
+
+      - name: Assert cibuildwheel venv was created
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          echo "Checking venv at: $CIBW_VENV"
+          if [ ! -d "$CIBW_VENV" ]; then
+            echo "FAIL: cibuildwheel venv not found at $CIBW_VENV"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel venv exists at $CIBW_VENV"
+
+      - name: Assert cibuildwheel binary is accessible in clean bin path
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CLEAN_BIN="$CIBW_VENV/bin.clean"
+          echo "Checking cibuildwheel in: $CLEAN_BIN"
+          if [ ! -f "$CLEAN_BIN/cibuildwheel" ] && [ ! -L "$CLEAN_BIN/cibuildwheel" ]; then
+            echo "FAIL: cibuildwheel binary not found in $CLEAN_BIN"
+            ls -la "$CLEAN_BIN" 2>/dev/null || echo "(directory does not exist)"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary found in clean bin path"
+
+      - name: Assert cibuildwheel is executable
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CLEAN_BIN="$CIBW_VENV/bin.clean"
+          # Resolve symlink if needed
+          CIBW_BIN=$(readlink -f "$CLEAN_BIN/cibuildwheel" 2>/dev/null || echo "$CLEAN_BIN/cibuildwheel")
+          echo "cibuildwheel binary: $CIBW_BIN"
+          if [ ! -x "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary is not executable"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary is executable"

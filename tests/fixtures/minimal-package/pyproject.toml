@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "minimal_test_pkg"
+version = "0.1.0"
+description = "Minimal test package for cibuildwheel"
+
+[tool.cibuildwheel]
+# Skip all builds - used for testing the action setup only
+skip = ["*"]

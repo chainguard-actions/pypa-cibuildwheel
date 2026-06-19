@@ -1,0 +1,853 @@
+import os
+import platform
+import re
+import sys
+import typing
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from shutil import rmtree, which
+from subprocess import CalledProcessError
+from textwrap import dedent
+from zipfile import ZipFile
+
+import pytest
+
+from .test_projects import new_c_project, new_meson_project
+from .utils import cibuildwheel_run, expected_wheels
+
+pytestmark = pytest.mark.android
+
+
+CIBW_PLATFORM = os.environ.get("CIBW_PLATFORM", "android")
+if CIBW_PLATFORM != "android":
+    pytest.skip(f"{CIBW_PLATFORM=}", allow_module_level=True)
+
+if (platform.system(), platform.machine()) not in [
+    ("Linux", "x86_64"),
+    ("Darwin", "arm64"),
+    ("Darwin", "x86_64"),
+]:
+    pytest.skip(
+        f"cibuildwheel does not support building Android wheels on "
+        f"{platform.system()} {platform.machine()}",
+        allow_module_level=True,
+    )
+
+# Azure Pipelines does not set the CI variable.
+ci = any(key in os.environ for key in ["CI", "TF_BUILD"])
+
+if "ANDROID_HOME" not in os.environ:
+    msg = "ANDROID_HOME environment variable is not set"
+
+    # Fail if we're on a CI service which is supposed to have the Android SDK
+    # pre-installed; otherwise skip the module.
+    if "GITHUB_ACTIONS" in os.environ or "TF_BUILD" in os.environ:
+        pytest.fail(msg)
+    else:
+        pytest.skip(msg, allow_module_level=True)
+
+# Many CI services don't support running the Android emulator: see platforms.md.
+supports_emulator = (not ci) or ("GITHUB_ACTIONS" in os.environ and platform.system() == "Linux")
+
+T = typing.TypeVar("T", bound=Callable[..., typing.Any])
+
+
+def needs_emulator(test: T) -> T:
+    # All copies of the testbed app run on the same emulator with the same
+    # application ID, so these tests must be run serially.
+    test = pytest.mark.serial(test)
+
+    if not supports_emulator:
+        test = pytest.mark.skip("This CI platform doesn't support the emulator")(test)
+    return test
+
+
+@dataclass
+class Architecture:
+    linux_machine: str
+    macos_machine: str
+    android_abi: str
+
+
+archs = [
+    Architecture("aarch64", "arm64", "arm64_v8a"),
+    Architecture("x86_64", "x86_64", "x86_64"),
+]
+native_arch = next(
+    arch for arch in archs if platform.machine() in [arch.linux_machine, arch.macos_machine]
+)
+
+
+cp313_env = {
+    "CIBW_PLATFORM": "android",
+    "CIBW_BUILD": "cp313-*",
+}
+
+
+def test_android_home(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    new_c_project().generate(tmp_path)
+    env = os.environ.copy()
+    del env["ANDROID_HOME"]
+
+    with pytest.raises(CalledProcessError):
+        cibuildwheel_run(tmp_path, env={**env, **cp313_env})
+    assert "ANDROID_HOME environment variable is not set" in capfd.readouterr().err
+
+
+# android-env.sh may need to install the NDK, and it isn't safe to do that multiple
+# times in parallel. So make sure there's at least one test which gets as far as doing
+# a build, which is marked as serial so it will run before the parallel tests, but isn't
+# marked as needs_emulator so it will run on all CI platforms.
+@pytest.mark.serial
+def test_expected_wheels(tmp_path: Path, spam_env: dict[str, str]) -> None:
+    # Since this test covers all Python versions, check the cross venv.
+    test_module = "_cross_venv_test_android"
+    project = new_c_project(setup_py_add=f"import {test_module}")
+    project.files[f"{test_module}.py"] = (Path(__file__).parent / f"{test_module}.py").read_text()
+    project.generate(tmp_path)
+
+    # Build wheels for all Python versions on the current architecture.
+    del spam_env["CIBW_BUILD"]
+    if not supports_emulator:
+        del spam_env["CIBW_TEST_COMMAND"]
+
+    wheels = cibuildwheel_run(tmp_path, add_env=spam_env)
+    assert wheels == expected_wheels(
+        "spam", "0.1.0", platform="android", machine_arch=native_arch.android_abi
+    )
+
+
+@needs_emulator
+def test_frontend_good(tmp_path: Path, build_frontend_env: dict[str, str]) -> None:
+    new_c_project().generate(tmp_path)
+    wheels = cibuildwheel_run(
+        tmp_path,
+        add_env={**cp313_env, **build_frontend_env, "CIBW_TEST_COMMAND": "python -m site"},
+    )
+    assert wheels == [f"spam-0.1.0-cp313-cp313-android_24_{native_arch.android_abi}.whl"]
+
+
+@pytest.mark.parametrize("frontend", ["pip"])
+def test_frontend_bad(frontend: str, tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    new_c_project().generate(tmp_path)
+    with pytest.raises(CalledProcessError):
+        cibuildwheel_run(
+            tmp_path,
+            add_env={**cp313_env, "CIBW_BUILD_FRONTEND": frontend},
+        )
+    assert (
+        f"Android requires the build frontend to be 'build' or 'uv', not '{frontend}'"
+        in capfd.readouterr().err
+    )
+
+
+@needs_emulator
+def test_archs(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    new_c_project().generate(tmp_path)
+
+    # Build all architectures while checking the handling of the `before` commands.
+    command_pattern = 'echo "Hello from {0}, package={{package}}, python=$(which python)"'
+    output_pattern = (
+        f"Hello from {{0}}, package={tmp_path}, python=/.+/cp313-android_{{1}}/venv/bin/python"
+    )
+
+    wheels = cibuildwheel_run(
+        tmp_path,
+        add_env={
+            **cp313_env,
+            "CIBW_ARCHS": "all",
+            "CIBW_BEFORE_ALL": "echo 'Hello from before_all'",
+            "CIBW_BEFORE_BUILD": command_pattern.format("before_build"),
+            "CIBW_BEFORE_TEST": command_pattern.format("before_test"),
+            "CIBW_TEST_COMMAND": (
+                "python -c 'import platform; print(f\"Hello from {platform.machine()}\")'"
+            ),
+        },
+    )
+    assert wheels == [f"spam-0.1.0-cp313-cp313-android_24_{arch.android_abi}.whl" for arch in archs]
+
+    stdout, stderr = capfd.readouterr()
+    lines = (line for line in stdout.splitlines() if line.startswith("Hello from"))
+    assert next(lines) == "Hello from before_all"
+
+    # All architectures should be built, but only the native architecture should run tests.
+    for arch in archs:
+        abi = arch.android_abi
+        assert re.fullmatch(output_pattern.format("before_build", abi), next(lines))
+        if arch == native_arch:
+            assert re.fullmatch(output_pattern.format("before_test", abi), next(lines))
+            assert next(lines) == f"Hello from {arch.linux_machine}"
+        else:
+            assert (
+                f"Skipping tests for {arch.android_abi}, as the build machine "
+                f"only supports {native_arch.android_abi}"
+            ) in stderr
+
+    try:
+        line = next(lines)
+    except StopIteration:
+        pass
+    else:
+        pytest.fail(f"Unexpected line: {line!r}")
+
+
+def test_build_requires(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    # Build-time requirements should be installed for the build platform, not for Android. Prove
+    # this by installing some non-pure-Python requirements and using them in setup.py.
+    #
+    # setup_requires is installed via ProjectBuilder.get_requires_for_build.
+    project = new_c_project(
+        setup_py_setup_args_add="setup_requires=['cmake==3.31.4']",
+        setup_py_add=dedent(
+            """\
+            if "egg_info" not in sys.argv:
+                import subprocess
+                subprocess.run(["cmake", "--version"], check=True)
+
+                from bitarray import bitarray
+                print(f"{bitarray('10110').count()=}")
+            """
+        ),
+    )
+
+    # [build_system] requires is installed via ProjectBuilder.build_system_requires.
+    project.files["pyproject.toml"] = dedent(
+        """\
+        [build-system]
+        requires = ["setuptools", "wheel", "bitarray==3.3.2"]
+        """
+    )
+
+    project.generate(tmp_path)
+    cibuildwheel_run(tmp_path, add_env={**cp313_env})
+
+    # Test for a specific version to minimize the chance that we ran a system cmake.
+    stdout = capfd.readouterr().out
+    assert "cmake version 3.31.4" in stdout
+    assert "bitarray('10110').count()=3" in stdout
+
+
+@pytest.fixture
+def spam_env(tmp_path: Path) -> dict[str, str]:
+    project = new_c_project()
+    project.files["test_spam.py"] = dedent(
+        """\
+        import spam
+
+        def test_spam() -> None:
+            assert spam.filter("ham")
+            assert not spam.filter("spam")
+            print("Spam test passed")
+        """
+    )
+    project.files["test_empty.py"] = dedent(
+        """\
+        def test_empty() -> None:
+            pass
+        """
+    )
+
+    project.generate(tmp_path)
+
+    return {
+        **cp313_env,
+        "CIBW_TEST_SOURCES": "test_spam.py test_empty.py",
+        "CIBW_TEST_REQUIRES": "pytest==8.3.5",
+        "CIBW_TEST_COMMAND": "python -m pytest",
+    }
+
+
+@needs_emulator
+@pytest.mark.parametrize(
+    ("command", "expected_output"),
+    [
+        ("python3 -c 'import test_spam; test_spam.test_spam()'", "Spam test passed"),
+        ("python -m pytest", "=== 2 passed in "),
+        ("python -m pytest test_spam.py", "=== 1 passed in "),
+        ("pytest test_spam.py", "=== 1 passed in "),
+    ],
+)
+def test_test_command_good(
+    command: str,
+    expected_output: str,
+    tmp_path: Path,
+    spam_env: dict[str, str],
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    cibuildwheel_run(tmp_path, add_env={**spam_env, "CIBW_TEST_COMMAND": command})
+    stdout, stderr = capfd.readouterr()
+    assert expected_output in stdout
+
+    if not command.startswith("python"):
+        assert (
+            f"Test command {command!r} is not supported on Android. cibuildwheel "
+            "will try to execute it as if it started with 'python -m'."
+        ) in stderr
+
+
+BAD_FORMAT_ERROR = (
+    "Test command '{}' is not supported on Android. "
+    "Command must begin with 'python' or 'python3', and contain '-m' or '-c'."
+)
+BAD_PLACEHOLDER_ERROR = (
+    "Test command '{}' with a '{{project}}' or '{{package}}' placeholder "
+    "is not supported on Android"
+)
+
+
+@needs_emulator
+@pytest.mark.parametrize(
+    ("command", "expected_output"),
+    [
+        # Build-time failure
+        ("./test_spam.py", BAD_FORMAT_ERROR.format("./test_spam.py")),
+        ("python test_spam.py", BAD_FORMAT_ERROR.format("python test_spam.py")),
+        ("pytest {project}", BAD_PLACEHOLDER_ERROR.format("pytest {project}")),
+        ("pytest {package}", BAD_PLACEHOLDER_ERROR.format("pytest {package}")),
+        # Runtime failure
+        ("pytest test_ham.py", "not found: test_ham.py"),
+    ],
+)
+def test_test_command_bad(
+    command: str,
+    expected_output: str,
+    tmp_path: Path,
+    spam_env: dict[str, str],
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(CalledProcessError):
+        cibuildwheel_run(tmp_path, add_env={**spam_env, "CIBW_TEST_COMMAND": command})
+    assert expected_output in capfd.readouterr().err
+
+
+@needs_emulator
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ("", 0),
+        ("-E", 1),
+    ],
+)
+def test_test_command_python_options(
+    options: str, expected: int, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    project = new_c_project()
+    project.generate(tmp_path)
+
+    command = 'import sys; print(f"{sys.flags.ignore_environment=}")'
+    cibuildwheel_run(
+        tmp_path,
+        add_env={
+            **cp313_env,
+            "CIBW_TEST_COMMAND": f"python {options} -c '{command}'",
+        },
+    )
+    assert f"sys.flags.ignore_environment={expected}" in capfd.readouterr().out
+
+
+@needs_emulator
+def test_package_subdir(
+    tmp_path: Path, spam_env: dict[str, str], capfd: pytest.CaptureFixture[str]
+) -> None:
+    spam_paths = list(tmp_path.iterdir())
+    package_dir = tmp_path / "package"
+    package_dir.mkdir()
+    for path in spam_paths:
+        path.rename(package_dir / path.name)
+
+    spam_env["CIBW_TEST_SOURCES"] = " ".join(
+        f"package/{path}" for path in spam_env["CIBW_TEST_SOURCES"].split()
+    )
+    cibuildwheel_run(tmp_path, package_dir, add_env=spam_env)
+    assert "=== 2 passed in " in capfd.readouterr().out
+
+
+@needs_emulator
+def test_no_test_sources(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    new_c_project().generate(tmp_path)
+    with pytest.raises(CalledProcessError):
+        cibuildwheel_run(
+            tmp_path,
+            add_env={**cp313_env, "CIBW_TEST_COMMAND": "python -m unittest discover"},
+        )
+    assert (
+        "On this platform, you must copy your test files to the testbed app by "
+        "setting the `test-sources` option"
+    ) in capfd.readouterr().err
+
+
+@needs_emulator
+def test_environment_markers(tmp_path: Path) -> None:
+    project = new_c_project()
+    test_filename = "test_environment_markers.py"
+    project.files[test_filename] = dedent(
+        """\
+        import pytest
+
+        def test_android() -> None:
+            import certifi
+
+        def test_not_android() -> None:
+            try:
+                import platformdirs
+            except ImportError:
+                pass
+            else:
+                pytest.fail("`platformdirs` should not have been installed")
+        """
+    )
+    project.generate(tmp_path)
+
+    cibuildwheel_run(
+        tmp_path,
+        add_env={
+            **cp313_env,
+            "CIBW_TEST_COMMAND": f"python -m pytest {test_filename}",
+            "CIBW_TEST_SOURCES": test_filename,
+            "CIBW_TEST_REQUIRES": "pytest certifi;sys_platform=='android' platformdirs;sys_platform!='android'",
+        },
+    )
+
+
+@needs_emulator
+def test_verbosity(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    new_c_project().generate(tmp_path)
+    test_env = {
+        **cp313_env,
+        "CIBW_TEST_COMMAND": """python -c 'print("Hello world")'""",
+    }
+    verbose_lines = [
+        "> Task :app:packageDebug",  # Gradle
+        "I/TestRunner: run started: 1 tests",  # Logcat
+    ]
+
+    cibuildwheel_run(tmp_path, add_env=test_env)
+    stdout = capfd.readouterr().out
+    for line in verbose_lines:
+        assert line not in stdout
+
+    cibuildwheel_run(
+        tmp_path,
+        add_env={**test_env, "CIBW_BUILD_VERBOSITY": "1"},
+    )
+    stdout = capfd.readouterr().out
+    for line in verbose_lines:
+        assert line in stdout
+
+
+@needs_emulator
+def test_api_level(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    project = new_c_project(
+        # Check that the the compiler options are set correctly.
+        spam_c_top_level_add=dedent(
+            """\
+            #if __ANDROID_API__ != 33
+            #error Unexpected API level; the following syntax error will show the actual value:
+            __ANDROID_API__
+            #endif
+            """
+        )
+    )
+    project.files["pyproject.toml"] = dedent(
+        """\
+        [build-system]
+        requires = ["setuptools"]
+
+        [tool.cibuildwheel]
+        # Test setting API level in pyproject.toml (test_libcxx covers setting
+        # it in the outer environment.)
+        android.environment.ANDROID_API_LEVEL = "33"
+        android.environment.PIP_EXTRA_INDEX_URL = "https://chaquo.com/pypi-13.1"
+        """
+    )
+    project.generate(tmp_path)
+
+    wheels = cibuildwheel_run(
+        tmp_path,
+        add_env={
+            **cp313_env,
+            # Verify that Android dependencies can be installed from the Chaquopy repository, and
+            # that wheels tagged with an older version of Android (in this case 24) are still
+            # accepted.
+            "CIBW_TEST_REQUIRES": "bitarray==3.0.0",
+            "CIBW_TEST_COMMAND": (
+                "python -c 'from bitarray import bitarray; print(~bitarray(\"01100\"))'"
+            ),
+        },
+    )
+    assert wheels == [f"spam-0.1.0-cp313-cp313-android_33_{native_arch.android_abi}.whl"]
+    assert "bitarray('10011')" in capfd.readouterr().out
+
+
+@needs_emulator
+def test_libcxx(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    project_dir = tmp_path / "project"
+    output_dir = tmp_path / "output"
+
+    # cibuildwheel should be able to run `patchelf` and `wheel` even when its
+    # environment's `bin` directory is not on the PATH.
+    non_venv_path = ":".join(
+        item for item in os.environ["PATH"].split(":") if Path(item) != Path(sys.executable).parent
+    )
+
+    # A C++ package should include libc++, and the extension module should be able to
+    # find it using DT_RUNPATH.
+    new_c_project(setup_py_extension_args_add="language='c++'").generate(project_dir)
+    script = 'import spam; print(", ".join(f"{s}: {spam.filter(s)}" for s in ["ham", "spam"]))'
+    cp313_test_env = {
+        **cp313_env,
+        "CIBW_TEST_COMMAND": f"python -c '{script}'",
+        "PATH": non_venv_path,
+    }
+
+    # Including external libraries requires API level 24. This is enforced by auditwheel.
+    cp313_android_21_env = {
+        **cp313_test_env,
+        # Test setting API level in the outer environment (test_api_level covers setting
+        # it in pyproject.toml.)
+        "ANDROID_API_LEVEL": "21",
+    }
+    with pytest.raises(CalledProcessError):
+        cibuildwheel_run(project_dir, add_env=cp313_android_21_env, output_dir=output_dir)
+    assert (
+        "Grafting libraries with RUNPATH requires API level 24 or higher" in capfd.readouterr().err
+    )
+
+    wheels = cibuildwheel_run(project_dir, add_env=cp313_test_env, output_dir=output_dir)
+    assert wheels == [f"spam-0.1.0-cp313-cp313-android_24_{native_arch.android_abi}.whl"]
+    names = ZipFile(output_dir / wheels[0]).namelist()
+    libcxx_names = [
+        name for name in names if re.fullmatch(r"spam\.libs/libc\+\+_shared-[0-9a-f]{8}\.so", name)
+    ]
+    assert len(libcxx_names) == 1
+    assert "ham: 1, spam: 0" in capfd.readouterr().out
+
+    # A C package should not include libc++, and can therefore use an older API level.
+    rmtree(project_dir)
+    rmtree(output_dir)
+    new_c_project().generate(project_dir)
+    wheels = cibuildwheel_run(project_dir, add_env=cp313_android_21_env, output_dir=output_dir)
+    assert wheels == [f"spam-0.1.0-cp313-cp313-android_21_{native_arch.android_abi}.whl"]
+    for name in ZipFile(output_dir / wheels[0]).namelist():
+        assert ".libs" not in name
+
+
+@needs_emulator
+def test_repair_none(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    new_c_project(setup_py_extension_args_add="language='c++'").generate(tmp_path)
+    with pytest.raises(CalledProcessError):
+        cibuildwheel_run(
+            tmp_path,
+            add_env={
+                **cp313_env,
+                "CIBW_REPAIR_WHEEL_COMMAND": "",
+                "CIBW_TEST_COMMAND": "python -c 'import spam'",
+            },
+        )
+    assert 'dlopen failed: library "libc++_shared.so" not found' in capfd.readouterr().err
+
+
+def test_repair_ldpaths(tmp_path: Path) -> None:
+    new_c_project().generate(tmp_path)
+    repair_path = tmp_path / "repair.py"
+    repair_path.write_text(
+        dedent(
+            """\
+            #!/usr/bin/env python
+            import shutil
+            import sys
+            from pathlib import Path
+
+            assert len(sys.argv) == 4, sys.argv
+            ldpaths = list(map(Path, sys.argv[1].split(":")))
+            dest_dir = sys.argv[2]
+            wheel = sys.argv[3]
+
+            for name in ["libc++_shared.so", "libomp.so"]:
+                assert any((lp / name).exists() for lp in ldpaths), (name, ldpaths)
+
+            shutil.copy(wheel, dest_dir)
+            """
+        )
+    )
+    repair_path.chmod(0o755)
+
+    wheels = cibuildwheel_run(
+        tmp_path,
+        add_env={
+            **cp313_env,
+            "CIBW_REPAIR_WHEEL_COMMAND": f"{repair_path} {{ldpaths}} {{dest_dir}} {{wheel}}",
+        },
+    )
+    assert wheels == [f"spam-0.1.0-cp313-cp313-android_24_{native_arch.android_abi}.whl"]
+
+
+@pytest.mark.parametrize(
+    ("script", "error"),
+    [
+        ("", "did not produce a wheel"),
+        ("touch $dest_dir/one.whl $dest_dir/two.whl", "produced multiple wheels"),
+        ("touch $dest_dir/one-0.0.1-py3-none-any.whl", "pure Python wheel was generated"),
+    ],
+)
+def test_repair_error(
+    script: str, error: str, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    new_c_project().generate(tmp_path)
+    repair_path = tmp_path / "repair.sh"
+    repair_path.write_text(
+        dedent(
+            f"""\
+            #!/bin/sh
+            dest_dir=$1
+            {script}
+            """
+        )
+    )
+    repair_path.chmod(0o755)
+
+    with pytest.raises(CalledProcessError):
+        cibuildwheel_run(
+            tmp_path,
+            add_env={**cp313_env, "CIBW_REPAIR_WHEEL_COMMAND": f"{repair_path} {{dest_dir}}"},
+        )
+    assert error in capfd.readouterr().err
+
+
+# This also tests integration with pkgconf, because Meson uses it to find Python.
+@needs_emulator
+def test_meson(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    # Alter spam.filter to return the value of a Fortran function.
+    new_meson_project(
+        spam_c_top_level_add="int fortran_func_();",
+        spam_c_function_add="sts = fortran_func_();",
+        project_args_add="'fortran',",
+        extension_args_add="'fortran.f90', link_language: 'fortran',",
+    ).generate(tmp_path)
+
+    # TODO: remove once meson-python has a release with Android support.
+    pyproject_path = tmp_path / "pyproject.toml"
+    pyproject_path.write_text(
+        pyproject_path.read_text().replace(
+            "meson-python", "meson-python @ git+https://github.com/mesonbuild/meson-python@main"
+        )
+    )
+
+    # Add Fortran code.
+    (tmp_path / "fortran.f90").write_text(
+        dedent(
+            """\
+            integer*4 function fortran_func()
+                fortran_func = 42
+            end
+            """
+        )
+    )
+
+    script = 'import spam; print(f"result: {spam.filter("")}")'
+    cibuildwheel_run(
+        tmp_path,
+        add_env={**cp313_env, "CIBW_TEST_COMMAND": f"python -c '{script}'"},
+    )
+    assert "result: 42" in capfd.readouterr().out
+
+
+@needs_emulator
+def test_xbuild_files(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    # Verify that we've replaced the correct files by compiling against a non-trivial
+    # function from libnpymath.a.
+    new_c_project(
+        setup_py_add=dedent(
+            """\
+            import numpy as np
+            np_include = np.get_include()
+            np_lib = f"{np_include}/../lib"
+            libraries.append("npymath")
+            """
+        ),
+        setup_py_extension_args_add="include_dirs=[np_include], library_dirs=[np_lib]",
+        spam_c_top_level_add="#include <numpy/halffloat.h>",
+        spam_c_function_add="sts = npy_float_to_half(42);",
+    ).generate(tmp_path)
+
+    (tmp_path / "pyproject.toml").write_text(
+        dedent(
+            """\
+            [build-system]
+            requires = ["setuptools", "numpy==2.3.2"]
+            """
+        )
+    )
+
+    script = 'import spam; print(f"result: {spam.filter(""):#x}")'
+    cibuildwheel_run(
+        tmp_path,
+        add_env={
+            **cp313_env,
+            # TODO: remove this once there are official Android NumPy wheels on PyPI.
+            "PIP_EXTRA_INDEX_URL": "https://chaquo.com/pypi-test",
+            "CIBW_ARCHS": "all",  # Include both native and non-native archs.
+            "CIBW_TEST_COMMAND": f"python -c '{script}'",
+        },
+    )
+    assert "result: 0x5140" in capfd.readouterr().out
+
+
+@needs_emulator
+def test_setuptools_rust(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    """
+    Test Android cross-compilation using the setuptools-rust toolchain.
+    """
+    if not which("rustup") or not which("cargo"):
+        pytest.skip("rustup and cargo are required for this test")
+
+    # Initialize a basic project and override files for setuptools-rust
+    project = new_c_project()
+    project.files["pyproject.toml"] = dedent(
+        """\
+       [build-system]
+       requires = ["setuptools", "wheel", "setuptools-rust"]
+       """
+    )
+    project.files["setup.py"] = dedent(
+        """\
+       from setuptools import setup
+       from setuptools_rust import Binding, RustExtension
+
+       setup(
+           name="spam",
+           version="0.1.0",
+           rust_extensions=[RustExtension("spam.rust_ext", binding=Binding.PyO3)],
+           zip_safe=False,
+       )
+       """
+    )
+    project.files["Cargo.toml"] = dedent(
+        """\
+       [package]
+       name = "rust_ext"
+       version = "0.1.0"
+       edition = "2021"
+
+       [lib]
+       name = "rust_ext"
+       crate-type = ["cdylib"]
+
+       [dependencies]
+       pyo3 = { version = "0.23.3", features = ["extension-module"] }
+       """
+    )
+
+    # Create the Rust source directory and file
+    (tmp_path / "src").mkdir()
+    project.files["src/lib.rs"] = dedent(
+        """\
+       use pyo3::prelude::*;
+
+       #[pyfunction]
+       fn hello() -> PyResult<String> {
+           Ok("Hello from Rust via setuptools-rust!".to_string())
+       }
+
+       #[pymodule]
+       fn rust_ext(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+           m.add_function(wrap_pyfunction!(hello, m)?)?;
+           Ok(())
+       }
+       """
+    )
+
+    project.generate(tmp_path)
+
+    # Command to verify the built extension on the Android emulator
+    test_command = "python -c 'import spam.rust_ext; print(spam.rust_ext.hello())'"
+
+    # Run cibuildwheel to build and test the wheel
+    wheels = cibuildwheel_run(
+        tmp_path,
+        add_env={
+            **cp313_env,
+            "CIBW_TEST_COMMAND": test_command,
+            "CIBW_BUILD_VERBOSITY": "1",
+        },
+    )
+
+    # Verification
+    assert len(wheels) == 1
+    stdout = capfd.readouterr().out
+    assert "Hello from Rust via setuptools-rust!" in stdout
+
+
+@needs_emulator
+def test_maturin(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    """
+    Test Android cross-compilation using the maturin backend.
+    """
+    if not which("rustup") or not which("cargo"):
+        pytest.skip("rustup and cargo are required for this test")
+
+    project = new_c_project()
+    project.files["pyproject.toml"] = dedent(
+        """\
+        [build-system]
+        # maturin >= 1.11.0 is required for reliable Android cross-compilation support.
+        requires = ["maturin>=1.11.0,<2.0"]
+        build-backend = "maturin"
+
+        [project]
+        name = "spam"
+        version = "0.1.0"
+        """
+    )
+    project.files["Cargo.toml"] = dedent(
+        """\
+        [package]
+        name = "spam"
+        version = "0.1.0"
+        edition = "2021"
+
+        [lib]
+        name = "spam"
+        crate-type = ["cdylib"]
+
+        [dependencies]
+        pyo3 = { version = "0.23.3", features = ["extension-module"] }
+        """
+    )
+
+    (tmp_path / "src").mkdir()
+    project.files["src/lib.rs"] = dedent(
+        """\
+        use pyo3::prelude::*;
+
+        #[pyfunction]
+        fn hello() -> PyResult<String> {
+            Ok("Hello from Rust via maturin!".to_string())
+        }
+
+        #[pymodule]
+        fn spam(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+            m.add_function(wrap_pyfunction!(hello, m)?)?;
+            Ok(())
+        }
+        """
+    )
+
+    project.generate(tmp_path)
+    (tmp_path / "setup.py").unlink()
+
+    test_command = "python -c 'import spam; print(spam.hello())'"
+
+    wheels = cibuildwheel_run(
+        tmp_path,
+        add_env={
+            **cp313_env,
+            "CIBW_TEST_COMMAND": test_command,
+            "CIBW_BUILD_VERBOSITY": "1",
+        },
+    )
+
+    assert len(wheels) == 1
+    stdout = capfd.readouterr().out
+    assert "Hello from Rust via maturin!" in stdout
