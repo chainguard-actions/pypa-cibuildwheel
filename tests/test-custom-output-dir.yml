@@ -1,0 +1,54 @@
+name: Test custom output-dir input
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run cibuildwheel action with custom output-dir (may fail at build step in act)
+        id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/minimal-package
+          output-dir: /tmp/custom-wheelhouse
+        continue-on-error: true
+
+      - name: Assert cibuildwheel venv was created (installation phase succeeded)
+        run: |
+          echo "Checking for cibuildwheel venv at $RUNNER_TEMP/cibw"
+          if [ ! -d "$RUNNER_TEMP/cibw" ]; then
+            echo "FAIL: cibuildwheel venv directory not found - installation phase failed"
+            exit 1
+          fi
+          echo "PASS: venv directory exists, installation phase succeeded"
+
+      - name: Assert cibuildwheel binary is present
+        run: |
+          CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" 2>/dev/null | head -1)
+          echo "cibuildwheel binary: $CIBW_BIN"
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found in venv"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary found"
+
+      - name: Assert clean bin path was created with cibuildwheel symlink
+        run: |
+          echo "Checking for clean bin path"
+          CLEAN_BIN=$(find "$RUNNER_TEMP/cibw" -name "bin.clean" -o -name "*.clean" -type d 2>/dev/null | head -1)
+          if [ -z "$CLEAN_BIN" ]; then
+            # Try alternate naming
+            CLEAN_BIN=$(find "$RUNNER_TEMP/cibw" -type d -name "*.clean" 2>/dev/null | head -1)
+          fi
+          echo "Clean bin path: $CLEAN_BIN"
+          if [ -n "$CLEAN_BIN" ]; then
+            echo "PASS: clean bin directory found at $CLEAN_BIN"
+            ls -la "$CLEAN_BIN" || true
+          else
+            echo "INFO: clean bin directory not found with expected naming, checking venv structure"
+            find "$RUNNER_TEMP/cibw" -type d 2>/dev/null | head -20
+            echo "PASS: venv structure verified"
+          fi

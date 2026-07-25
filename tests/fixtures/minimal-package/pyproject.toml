@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "minimal-test-package"
+version = "0.1.0"
+description = "A minimal test package for cibuildwheel action testing"
+requires-python = ">=3.8"
+
+[tool.cibuildwheel]
+# Only build for the current platform/arch to speed things up
+# Use a pure-python build
+build = ["cp311-*"]
+skip = ["*-manylinux_i686", "*-musllinux_*", "*-win32"]

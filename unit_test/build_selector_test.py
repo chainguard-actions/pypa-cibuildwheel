@@ -1,0 +1,232 @@
+from packaging.specifiers import SpecifierSet
+
+import cibuildwheel.selector
+from cibuildwheel.selector import BuildSelector, EnableGroup
+
+
+def test_build() -> None:
+    build_selector = BuildSelector(
+        build_config="cp3*-* *-manylinux*", skip_config="", enable=frozenset([EnableGroup.PyPy])
+    )
+
+    assert build_selector("cp36-manylinux_x86_64")
+    assert build_selector("cp37-manylinux_x86_64")
+    assert build_selector("cp310-manylinux_x86_64")
+    assert build_selector("cp311-manylinux_x86_64")
+    assert build_selector("cp312-manylinux_x86_64")
+    assert build_selector("cp313-manylinux_x86_64")
+    assert build_selector("cp314-manylinux_x86_64")
+    assert build_selector("pp311-manylinux_x86_64")
+    assert build_selector("cp36-manylinux_i686")
+    assert build_selector("cp37-manylinux_i686")
+    assert build_selector("cp36-macosx_intel")
+    assert build_selector("cp37-macosx_intel")
+    assert build_selector("cp39-macosx_intel")
+    assert build_selector("cp39-macosx_universal2")
+    assert build_selector("cp39-macosx_arm64")
+    assert not build_selector("pp310-macosx_intel")
+    assert not build_selector("pp311-macosx_intel")
+    assert build_selector("cp36-win32")
+    assert build_selector("cp37-win32")
+    assert not build_selector("pp310-win32")
+    assert not build_selector("pp311-win32")
+    assert build_selector("cp36-win_amd64")
+    assert build_selector("cp37-win_amd64")
+    assert build_selector("cp310-win_amd64")
+    assert build_selector("cp311-win_amd64")
+    assert build_selector("cp312-win_amd64")
+    assert build_selector("cp313-win_amd64")
+    assert build_selector("cp314-win_amd64")
+    assert not build_selector("pp310-win_amd64")
+    assert not build_selector("pp311-win_amd64")
+
+
+def test_build_filter_pre() -> None:
+    build_selector = BuildSelector(
+        build_config="cp3*-* *-manylinux*",
+        skip_config="",
+        enable=frozenset([EnableGroup.CPythonPrerelease, EnableGroup.PyPy]),
+    )
+
+    assert build_selector("cp37-manylinux_x86_64")
+    assert build_selector("cp313-manylinux_x86_64")
+    assert build_selector("cp37-win_amd64")
+    assert build_selector("cp313-win_amd64")
+    assert build_selector("cp314t-manylinux_x86_64")
+
+
+def test_build_filter_pypy() -> None:
+    build_selector = BuildSelector(
+        build_config="*",
+        skip_config="",
+        enable=frozenset([EnableGroup.PyPy]),
+    )
+    assert build_selector("pp311-manylinux_x86_64")
+    assert not build_selector("pp310-manylinux_x86_64")
+    assert not build_selector("pp38-manylinux_x86_64")
+    assert not build_selector("pp39-manylinux_x86_64")
+
+
+def test_build_filter_pypy_eol() -> None:
+    build_selector = BuildSelector(
+        build_config="*",
+        skip_config="",
+        enable=frozenset([EnableGroup.PyPyEoL]),
+    )
+    assert not build_selector("pp311-manylinux_x86_64")
+    assert build_selector("pp310-manylinux_x86_64")
+    assert build_selector("pp38-manylinux_x86_64")
+    assert build_selector("pp39-manylinux_x86_64")
+
+
+def test_build_filter_pypy_all() -> None:
+    build_selector = BuildSelector(
+        build_config="*",
+        skip_config="",
+        enable=frozenset([EnableGroup.PyPyEoL, EnableGroup.PyPy]),
+    )
+    assert build_selector("pp310-manylinux_x86_64")
+    assert build_selector("pp311-manylinux_x86_64")
+    assert build_selector("pp38-manylinux_x86_64")
+    assert build_selector("pp39-manylinux_x86_64")
+
+
+# Re-enable when we have Pyodide 3.15 prerelease builds to test against
+# def test_build_filter_pyodide_prerelease() -> None:
+#     build_selector = BuildSelector(
+#         build_config="*",
+#         skip_config="",
+#         enable=frozenset([EnableGroup.PyodidePrerelease]),
+#     )
+#     assert build_selector("cp314-pyodide_wasm32")
+#     assert build_selector("cp315-pyodide_wasm32")
+
+
+def test_build_filter_pyodide() -> None:
+    build_selector = BuildSelector(
+        build_config="*",
+        skip_config="",
+        enable=frozenset(),
+    )
+    assert build_selector("cp313-pyodide_wasm32")
+    assert build_selector("cp314-pyodide_wasm32")
+    assert not build_selector("cp312-pyodide_wasm32")
+
+
+def test_build_filter_pyodide_eol() -> None:
+    build_selector = BuildSelector(
+        build_config="*",
+        skip_config="",
+        enable=frozenset([EnableGroup.PyodideEoL]),
+    )
+    assert build_selector("cp312-pyodide_wasm32")
+    assert build_selector("cp313-pyodide_wasm32")
+    assert build_selector("cp314-pyodide_wasm32")
+
+
+def test_skip() -> None:
+    build_selector = BuildSelector(
+        build_config="*",
+        skip_config="pp310-* cp3?-manylinux_i686 cp36-win* *-win32",
+        enable=frozenset([EnableGroup.PyPy]),
+    )
+
+    assert not build_selector("pp310-manylinux_x86_64")
+    assert build_selector("pp311-manylinux_x86_64")
+    assert not build_selector("pp37-manylinux_i686")
+    assert not build_selector("pp38-manylinux_i686")
+    assert build_selector("cp36-manylinux_x86_64")
+    assert build_selector("cp37-manylinux_x86_64")
+    assert not build_selector("cp36-manylinux_i686")
+    assert not build_selector("cp37-manylinux_i686")
+    assert not build_selector("pp39-macosx_10_6_intel")
+    assert build_selector("pp311-macosx_10_6_intel")
+    assert build_selector("cp36-macosx_10_6_intel")
+    assert build_selector("cp37-macosx_10_6_intel")
+    assert not build_selector("cp36-win32")
+    assert not build_selector("cp37-win32")
+    assert not build_selector("cp36-win_amd64")
+    assert build_selector("cp37-win_amd64")
+
+
+def test_build_and_skip() -> None:
+    build_selector = BuildSelector(
+        build_config="cp36-* cp37-macosx* *-manylinux*",
+        skip_config="pp37-* cp37-manylinux_i686",
+        enable=frozenset([EnableGroup.PyPy]),
+    )
+
+    assert not build_selector("pp37-manylinux_x86_64")
+    assert build_selector("cp36-manylinux_x86_64")
+    assert build_selector("cp37-manylinux_x86_64")
+    assert not build_selector("pp37-manylinux_i686")
+    assert build_selector("cp36-manylinux_i686")
+    assert not build_selector("cp37-manylinux_i686")
+    assert not build_selector("pp37-macosx_10_6_intel")
+    assert build_selector("cp36-macosx_10_6_intel")
+    assert build_selector("cp37-macosx_10_6_intel")
+    assert not build_selector("pp37-win32")
+    assert build_selector("cp36-win32")
+    assert not build_selector("cp37-win32")
+    assert not build_selector("pp37-win_amd64")
+    assert build_selector("cp36-win_amd64")
+    assert not build_selector("cp37-win_amd64")
+
+
+def test_build_braces() -> None:
+    build_selector = BuildSelector(build_config="cp{36,37}*", skip_config="")
+
+    assert build_selector("cp36-manylinux_x86_64")
+    assert build_selector("cp37-manylinux_x86_64")
+    assert not build_selector("cp38-manylinux_x86_64")
+    assert not build_selector("cp39-manylinux_x86_64")
+
+
+def test_build_limited_python() -> None:
+    build_selector = BuildSelector(
+        build_config="*",
+        skip_config="",
+        requires_python=SpecifierSet(">=3.7"),
+        enable=frozenset([EnableGroup.PyPy, EnableGroup.PyPyEoL, EnableGroup.GraalPy]),
+    )
+
+    assert not build_selector("cp36-manylinux_x86_64")
+    assert build_selector("cp37-manylinux_x86_64")
+    assert build_selector("cp38-manylinux_x86_64")
+    assert not build_selector("cp36-manylinux_i686")
+    assert build_selector("cp37-manylinux_i686")
+    assert build_selector("cp38-manylinux_i686")
+    assert not build_selector("cp36-win32")
+    assert build_selector("cp37-win32")
+    assert build_selector("cp38-win32")
+    assert build_selector("pp37-win_amd64")
+    assert build_selector("gp312_250-win_amd64")
+
+
+def test_build_limited_python_partial() -> None:
+    build_selector = BuildSelector(
+        build_config="*", skip_config="", requires_python=SpecifierSet(">=3.6, !=3.7.*")
+    )
+
+    assert build_selector("cp36-manylinux_x86_64")
+    assert not build_selector("cp37-manylinux_x86_64")
+    assert build_selector("cp38-manylinux_x86_64")
+    assert build_selector("cp39-manylinux_x86_64")
+
+
+def test_build_limited_python_patch() -> None:
+    build_selector = BuildSelector(
+        build_config="*", skip_config="", requires_python=SpecifierSet(">=3.6.8")
+    )
+
+    assert build_selector("cp36-manylinux_x86_64")
+    assert build_selector("cp37-manylinux_x86_64")
+
+
+def test_testing_selector() -> None:
+    # This is not a global import to keep pytest from collecting it as a test
+    test_selector = cibuildwheel.selector.TestSelector(skip_config="cp36-*")
+
+    assert not test_selector("cp36-win_amd64")
+    assert test_selector("cp37-manylinux_x86_64")
+    assert test_selector("cp311-manylinux_x86_64")

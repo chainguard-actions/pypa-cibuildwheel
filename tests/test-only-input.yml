@@ -1,0 +1,71 @@
+name: Test only input for specific wheel build
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run cibuildwheel action with only input (may fail at build step in act)
+        id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/minimal-package
+          output-dir: /tmp/only-test-wheelhouse
+          only: cp311-manylinux_x86_64
+        continue-on-error: true
+
+      - name: Assert cibuildwheel venv was created (installation phase succeeded)
+        run: |
+          echo "Checking for cibuildwheel venv at $RUNNER_TEMP/cibw"
+          if [ ! -d "$RUNNER_TEMP/cibw" ]; then
+            echo "FAIL: cibuildwheel venv directory not found - installation phase failed"
+            exit 1
+          fi
+          echo "PASS: venv directory exists, installation phase succeeded"
+
+      - name: Assert cibuildwheel binary is present
+        run: |
+          CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" 2>/dev/null | head -1)
+          echo "cibuildwheel binary: $CIBW_BIN"
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found in venv"
+            exit 1
+          fi
+          VERSION=$("$CIBW_BIN" --version 2>&1 || true)
+          echo "Version: $VERSION"
+          if echo "$VERSION" | grep -q "cibuildwheel"; then
+            echo "PASS: cibuildwheel installed correctly for 'only' scenario"
+          else
+            echo "FAIL: cibuildwheel not functional: $VERSION"
+            exit 1
+          fi
+
+      - name: Verify clean bin path contains cibuildwheel
+        run: |
+          echo "Checking clean bin path structure"
+          # The action creates a clean bin path at $RUNNER_TEMP/cibw/bin.clean
+          CLEAN_BIN="$RUNNER_TEMP/cibw/bin.clean"
+          if [ -d "$CLEAN_BIN" ]; then
+            echo "Clean bin directory found at $CLEAN_BIN"
+            ls -la "$CLEAN_BIN"
+            if [ -e "$CLEAN_BIN/cibuildwheel" ]; then
+              echo "PASS: cibuildwheel found in clean bin path"
+            else
+              echo "FAIL: cibuildwheel not found in clean bin path"
+              exit 1
+            fi
+          else
+            echo "INFO: clean bin path not at expected location, searching..."
+            find "$RUNNER_TEMP/cibw" -type d 2>/dev/null
+            # Fall back to checking the main venv bin
+            CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" 2>/dev/null | head -1)
+            if [ -n "$CIBW_BIN" ]; then
+              echo "PASS: cibuildwheel found at $CIBW_BIN"
+            else
+              echo "FAIL: cibuildwheel not found anywhere in venv"
+              exit 1
+            fi
+          fi

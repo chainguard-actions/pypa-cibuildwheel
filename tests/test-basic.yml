@@ -1,0 +1,58 @@
+name: Test basic cibuildwheel installation
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run cibuildwheel action (may fail at build step in act)
+        id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/minimal-package
+          output-dir: tests/fixtures/minimal-package/wheelhouse
+        continue-on-error: true
+
+      - name: Assert cibuildwheel venv was created
+        run: |
+          echo "Checking for cibuildwheel venv at $RUNNER_TEMP/cibw"
+          if [ ! -d "$RUNNER_TEMP/cibw" ]; then
+            echo "FAIL: cibuildwheel venv directory not found at $RUNNER_TEMP/cibw"
+            exit 1
+          fi
+          echo "PASS: venv directory exists"
+
+      - name: Assert cibuildwheel binary is installed in venv
+        run: |
+          echo "Checking for cibuildwheel binary in venv"
+          CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" -type f 2>/dev/null | head -1)
+          if [ -z "$CIBW_BIN" ]; then
+            # Also check for symlinks
+            CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" 2>/dev/null | head -1)
+          fi
+          echo "Found: $CIBW_BIN"
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found in venv"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary found at $CIBW_BIN"
+
+      - name: Assert cibuildwheel is executable and reports version
+        run: |
+          echo "Checking cibuildwheel version"
+          CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" 2>/dev/null | head -1)
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found"
+            exit 1
+          fi
+          VERSION=$("$CIBW_BIN" --version 2>&1 || true)
+          echo "Version output: $VERSION"
+          if echo "$VERSION" | grep -q "cibuildwheel"; then
+            echo "PASS: cibuildwheel version reported correctly"
+          else
+            echo "FAIL: unexpected version output: $VERSION"
+            exit 1
+          fi

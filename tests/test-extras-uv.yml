@@ -1,0 +1,64 @@
+name: Test extras=uv installs uv alongside cibuildwheel
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run cibuildwheel action with uv extra (may fail at build step in act)
+        id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/minimal-package
+          output-dir: /tmp/uv-test-wheelhouse
+          extras: uv
+        continue-on-error: true
+
+      - name: Assert cibuildwheel venv was created (installation phase succeeded)
+        run: |
+          echo "Checking for cibuildwheel venv at $RUNNER_TEMP/cibw"
+          if [ ! -d "$RUNNER_TEMP/cibw" ]; then
+            echo "FAIL: cibuildwheel venv directory not found - installation phase failed"
+            exit 1
+          fi
+          echo "PASS: venv directory exists"
+
+      - name: Assert uv binary is installed in venv (extras=uv should install uv)
+        run: |
+          echo "Checking for uv binary in venv"
+          UV_BIN=$(find "$RUNNER_TEMP/cibw" -name "uv" 2>/dev/null | head -1)
+          echo "uv binary: $UV_BIN"
+          if [ -z "$UV_BIN" ]; then
+            echo "FAIL: uv binary not found in venv - extras=uv did not install uv"
+            exit 1
+          fi
+          echo "PASS: uv binary found at $UV_BIN"
+
+      - name: Assert uv is executable and reports version
+        run: |
+          UV_BIN=$(find "$RUNNER_TEMP/cibw" -name "uv" 2>/dev/null | head -1)
+          if [ -z "$UV_BIN" ]; then
+            echo "FAIL: uv binary not found"
+            exit 1
+          fi
+          UV_VERSION=$("$UV_BIN" --version 2>&1 || true)
+          echo "uv version: $UV_VERSION"
+          if echo "$UV_VERSION" | grep -q "uv"; then
+            echo "PASS: uv version reported correctly"
+          else
+            echo "FAIL: unexpected uv version output: $UV_VERSION"
+            exit 1
+          fi
+
+      - name: Assert cibuildwheel is also installed alongside uv
+        run: |
+          CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" 2>/dev/null | head -1)
+          echo "cibuildwheel binary: $CIBW_BIN"
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found when using extras=uv"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary found alongside uv"

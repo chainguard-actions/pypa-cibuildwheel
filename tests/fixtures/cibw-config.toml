@@ -1,0 +1,4 @@
+[tool.cibuildwheel]
+# Minimal config for testing - only build one target
+build = ["cp311-manylinux_x86_64"]
+skip = []

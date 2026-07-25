@@ -1,0 +1,263 @@
+#!/usr/bin/env -S uv run
+
+# /// script
+# dependencies = ["nox>=2025.2.9"]
+# ///
+
+"""
+cibuildwheel's nox support
+
+Tags:
+
+    lint: All linting jobs
+    update: All update jobs
+
+See sessions with `nox -l`
+"""
+
+import os
+import re
+import shutil
+import sys
+from pathlib import Path
+from typing import Any
+
+import nox
+
+nox.needs_version = ">=2025.2.9"
+nox.options.default_venv_backend = "uv|virtualenv"
+
+DIR = Path(__file__).parent.resolve()
+
+
+@nox.session(tags=["lint"])
+def lint(session: nox.Session) -> None:
+    """
+    Run the linter.
+    """
+    session.install("prek")
+    session.run("prek", "run", "--all-files", *session.posargs)
+
+
+@nox.session(tags=["lint"])
+def pylint(session: nox.Session) -> None:
+    """
+    Run pylint.
+    """
+
+    session.install("pylint>=3.2", "-e.")
+    session.run("pylint", "cibuildwheel", *session.posargs)
+
+
+@nox.session
+def tests(session: nox.Session) -> None:
+    """
+    Run the unit and regular tests.
+    """
+    pyproject = nox.project.load_toml()
+    session.install("-e.", *nox.project.dependency_groups(pyproject, "test"))
+    if session.posargs:
+        session.run("pytest", *session.posargs)
+    else:
+        unit_test_args = ["--run-docker"] if sys.platform.startswith("linux") else []
+        session.run("pytest", "cibuildwheel")  # run doctests
+        session.run("pytest", "unit_test", *unit_test_args)
+        session.run("pytest", "test", "-x", "--durations", "0", "--timeout=2400", "test")
+
+
+# Packages held back for GraalPy until upstream fixes land. uv pip compile
+# can't express a per-implementation split, so the compiled pin is patched:
+# GraalPy (matching `graalpy_marker`) gets `held`, everything else
+# (`other_marker`) tracks the freshly compiled version.
+GRAALPY_HELD_BACK = (
+    # Newer pip breaks GraalPy on Windows.
+    {
+        "package": "pip",
+        "held": "26.0.1",
+        "graalpy_marker": 'implementation_name == "graalpy" and platform_system == "Windows"',
+        "other_marker": 'implementation_name != "graalpy" or platform_system != "Windows"',
+    },
+    # filelock >=3.30 imports errno.ENOTSUP, which GraalPy lacks (fix due ~2026-08).
+    {
+        "package": "filelock",
+        "held": "3.29.7",
+        "graalpy_marker": 'implementation_name == "graalpy"',
+        "other_marker": 'implementation_name != "graalpy"',
+    },
+)
+
+
+def _pin_graalpy_workarounds(output_file: Path) -> None:
+    text = output_file.read_text()
+    for pin in GRAALPY_HELD_BACK:
+        package = re.escape(pin["package"])
+        text = re.sub(
+            rf"^{package}==(?P<version>[^\s;]+)$",
+            f"{pin['package']}==\\g<version>; {pin['other_marker']}\n"
+            f"{pin['package']}=={pin['held']}; {pin['graalpy_marker']}",
+            text,
+            flags=re.MULTILINE,
+        )
+    output_file.write_text(text)
+
+
+def _graalpy_python_versions(build_platforms: dict[str, Any]) -> set[str]:
+    """Python minor versions (e.g. "3.12") that ship a GraalPy configuration."""
+    return {
+        ".".join(config["version"].split(".")[:2])
+        for platform in build_platforms.values()
+        for config in platform["python_configurations"]
+        if config["identifier"].startswith("gp")
+    }
+
+
+@nox.session(default=False, tags=["update"])
+def update_constraints(session: nox.Session) -> None:
+    """
+    Update the dependencies inplace.
+    """
+
+    resources = Path("cibuildwheel/resources")
+
+    if session.venv_backend != "uv":
+        session.install("uv>=0.9")
+
+    # CUSTOM_COMPILE_COMMAND is a pip-compile option that tells users how to
+    # regenerate the constraints files
+    env = os.environ.copy()
+    env["UV_CUSTOM_COMPILE_COMMAND"] = f"nox -s {session.name}"
+
+    build_platforms = nox.project.load_toml(resources / "build-platforms.toml")
+    graalpy_versions = _graalpy_python_versions(build_platforms)
+
+    for minor_version in range(9, 16):
+        python_version = f"3.{minor_version}"
+        output_file = resources / f"constraints-python{python_version.replace('.', '')}.txt"
+        session.run(
+            "uv",
+            "pip",
+            "compile",
+            f"--python-version={python_version}",
+            "--upgrade",
+            resources / "constraints.in",
+            f"--output-file={output_file}",
+            env=env,
+        )
+        if python_version in graalpy_versions:
+            _pin_graalpy_workarounds(output_file)
+
+    shutil.copyfile(
+        resources / "constraints-python315.txt",
+        resources / "constraints.txt",
+    )
+
+    pyodides = build_platforms["pyodide"]["python_configurations"]
+    for pyodide in pyodides:
+        python_version = ".".join(pyodide["version"].split(".")[:2])
+        pyodide_version = pyodide["default_pyodide_version"]
+
+        tmp_file = Path(session.create_tmp()) / "constraints-pyodide.in"
+
+        session.install_and_run_script(
+            "bin/generate_pyodide_constraints.py",
+            "--output-file",
+            tmp_file,
+            pyodide_version,
+        )
+
+        output_file = resources / f"constraints-pyodide{python_version.replace('.', '')}.txt"
+        session.run(
+            "uv",
+            "pip",
+            "compile",
+            f"--python-version={python_version}",
+            "--upgrade",
+            tmp_file,
+            f"--output-file={output_file}",
+            env=env,
+        )
+
+
+@nox.session(default=False, tags=["update"])
+def update_pins(session: nox.Session) -> None:
+    """
+    Update the python, docker, virtualenv, node, and python-build-standalone
+    version pins inplace.
+    """
+    session.install_and_run_script("bin/update_pythons.py", "--force")
+    session.install_and_run_script("bin/update_docker.py")
+    session.install_and_run_script("bin/update_virtualenv.py", "--force")
+    session.install_and_run_script("bin/update_nodejs.py", "--force")
+    session.install_and_run_script("bin/update_python_build_standalone.py")
+
+
+@nox.session(default=False, reuse_venv=True, tags=["update"])
+def update_proj(session: nox.Session) -> None:
+    """
+    Update the README inplace.
+    """
+    session.install_and_run_script(
+        "bin/projects.py",
+        "docs/data/projects.yml",
+        *session.posargs,
+    )
+
+
+@nox.session(default=False, reuse_venv=True, tags=["update"])
+def generate_schema(session: nox.Session) -> None:
+    """
+    Generate the cibuildwheel.schema.json file.
+    """
+    output = session.install_and_run_script("bin/generate_schema.py", silent=True)
+    assert isinstance(output, str)
+    DIR.joinpath("cibuildwheel/resources/cibuildwheel.schema.json").write_text(output)
+
+
+@nox.session(default=False, reuse_venv=True)
+def bump_version(session: nox.Session) -> None:
+    """
+    Bump cibuildwheel's version. Interactive.
+    """
+    session.install_and_run_script("bin/bump_version.py")
+
+
+@nox.session(default=False)
+def docs(session: nox.Session) -> None:
+    """
+    Build the docs. Will serve unless --non-interactive
+    """
+    pyproject = nox.project.load_toml()
+    session.install("-e.", *nox.project.dependency_groups(pyproject, "docs"))
+    session.run(
+        "properdocs", "serve" if session.interactive else "build", "--strict", *session.posargs
+    )
+
+
+@nox.session(default=False)
+def update_how_it_works_image(session: nox.Session) -> None:
+    """
+    Generate the how it works image.
+    """
+    session.install_and_run_script("bin/update_how_it_works_image.py")
+
+
+@nox.session(default=False)
+def build(session: nox.Session) -> None:
+    """
+    Build an SDist and wheel.
+    """
+
+    build_p = DIR.joinpath("build")
+    if build_p.exists():
+        shutil.rmtree(build_p)
+
+    dist_p = DIR.joinpath("dist")
+    if dist_p.exists():
+        shutil.rmtree(dist_p)
+
+    session.install("build")
+    session.run("python", "-m", "build")
+
+
+if __name__ == "__main__":
+    nox.main()
