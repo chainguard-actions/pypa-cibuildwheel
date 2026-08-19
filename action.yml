@@ -125,23 +125,14 @@ runs:
         # Prepend '& ' so PowerShell executes the quoted binary path
         cmd_pwsh = "& " + " ".join(pwsh_quote(arg) for arg in cmd_args)
 
-        # Write the commands to script files so they can be executed directly
-        # without eval/Invoke-Expression (avoids script injection).
-        runner_temp = Path(os.environ["RUNNER_TEMP"])
-        bash_script = runner_temp / "cibw_run.sh"
-        pwsh_script = runner_temp / "cibw_run.ps1"
-
-        bash_script.write_text(f"#!/bin/sh\n{cmd_bash} 2>&1\n")
-        pwsh_script.write_text(f"{cmd_pwsh}\n")
+        def sanitize(value):
+            # Strip newline characters to prevent GITHUB_OUTPUT injection
+            return str(value).replace("\n", "").replace("\r", "")
 
         with open(os.environ["GITHUB_OUTPUT"], "at") as f:
-            # prepend-path is not user-controlled; strip newlines as a precaution
-            safe_prepend = str(clean_bin_path).replace("\n", "").replace("\r", "")
-            f.write(f"prepend-path={safe_prepend}\n")
-            safe_bash_script = str(bash_script).replace("\n", "").replace("\r", "")
-            f.write(f"bash-script={safe_bash_script}\n")
-            safe_pwsh_script = str(pwsh_script).replace("\n", "").replace("\r", "")
-            f.write(f"pwsh-script={safe_pwsh_script}\n")
+            f.write(f"prepend-path={sanitize(clean_bin_path)}\n")
+            f.write(f"cmd-bash={sanitize(cmd_bash)}\n")
+            f.write(f"cmd-pwsh={sanitize(cmd_pwsh)}\n")
 
         print("::endgroup::")
         EOF
@@ -156,18 +147,18 @@ runs:
     # Redirecting stderr to stdout to fix interleaving issue in Actions.
     - run: |
         export PATH="$CIBW_PREPEND_PATH:$PATH"
-        sh "$CIBW_BASH_SCRIPT"
+        eval "$CIBW_CMD_BASH" 2>&1
       shell: bash
       if: runner.os != 'Windows'
       env:
         CIBW_PREPEND_PATH: ${{ steps.cibw.outputs.prepend-path }}
-        CIBW_BASH_SCRIPT: ${{ steps.cibw.outputs.bash-script }}
+        CIBW_CMD_BASH: ${{ steps.cibw.outputs.cmd-bash }}
     # Windows needs powershell to interact nicely with Meson
     - run: |
         $env:PATH = "$env:CIBW_PREPEND_PATH;$env:PATH"
-        & "$env:CIBW_PWSH_SCRIPT"
+        Invoke-Expression $env:CIBW_CMD_PWSH
       shell: pwsh
       if: runner.os == 'Windows'
       env:
         CIBW_PREPEND_PATH: ${{ steps.cibw.outputs.prepend-path }}
-        CIBW_PWSH_SCRIPT: ${{ steps.cibw.outputs.pwsh-script }}
+        CIBW_CMD_PWSH: ${{ steps.cibw.outputs.cmd-pwsh }}

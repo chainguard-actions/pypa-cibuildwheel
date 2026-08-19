@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "sample"
+version = "0.1.0"
+description = "A minimal sample package for testing"
+requires-python = ">=3.8"
+
+[tool.cibuildwheel]
+# Only build for the current Python version on the current platform
+build = ["cp311-*"]

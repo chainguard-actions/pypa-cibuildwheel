@@ -1,0 +1,49 @@
+name: Test config-file input
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Run the action with a custom config-file. The build step may fail without
+      # Docker, but we verify that cibuildwheel was installed (venv created).
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package-dir: tests/fixtures/sample-package
+          config-file: tests/fixtures/sample-package/pyproject.toml
+
+      - name: Assert cibuildwheel venv was created
+        run: |
+          echo "Checking for cibuildwheel venv at $RUNNER_TEMP/cibw"
+          if [ ! -d "$RUNNER_TEMP/cibw" ]; then
+            echo "FAIL: cibuildwheel venv directory not found at $RUNNER_TEMP/cibw"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel venv directory exists"
+
+      - name: Assert cibuildwheel binary exists in venv
+        run: |
+          echo "Searching for cibuildwheel binary in $RUNNER_TEMP/cibw"
+          CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" 2>/dev/null | head -1)
+          echo "Found: $CIBW_BIN"
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found in $RUNNER_TEMP/cibw"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary found at $CIBW_BIN"
+
+      - name: Assert config file exists and is readable
+        run: |
+          CONFIG="tests/fixtures/sample-package/pyproject.toml"
+          echo "Checking config file: $CONFIG"
+          if [ ! -f "$CONFIG" ]; then
+            echo "FAIL: config file not found at $CONFIG"
+            exit 1
+          fi
+          echo "PASS: config file exists at $CONFIG"
+          cat "$CONFIG"

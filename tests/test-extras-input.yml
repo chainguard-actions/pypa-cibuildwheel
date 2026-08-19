@@ -1,0 +1,64 @@
+name: Test extras input
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Run the action with extras=uv to verify that the uv binary is also
+      # exposed in the clean bin path directory alongside cibuildwheel.
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package-dir: tests/fixtures/sample-package
+          extras: uv
+
+      - name: Assert cibuildwheel venv was created
+        run: |
+          echo "Checking for cibuildwheel venv at $RUNNER_TEMP/cibw"
+          if [ ! -d "$RUNNER_TEMP/cibw" ]; then
+            echo "FAIL: cibuildwheel venv directory not found at $RUNNER_TEMP/cibw"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel venv directory exists"
+
+      - name: Assert clean bin path directory was created
+        run: |
+          echo "Searching for clean bin path in $RUNNER_TEMP/cibw"
+          CLEAN_BIN=$(find "$RUNNER_TEMP/cibw" -name "*.clean" -type d 2>/dev/null | head -1)
+          echo "Found clean bin dir: $CLEAN_BIN"
+          if [ -z "$CLEAN_BIN" ]; then
+            echo "FAIL: clean bin directory not found under $RUNNER_TEMP/cibw"
+            exit 1
+          fi
+          echo "PASS: clean bin directory exists at $CLEAN_BIN"
+
+      - name: Assert cibuildwheel binary exists in clean bin path
+        run: |
+          CLEAN_BIN=$(find "$RUNNER_TEMP/cibw" -name "*.clean" -type d 2>/dev/null | head -1)
+          echo "Checking for cibuildwheel in: $CLEAN_BIN"
+          if ! ls "$CLEAN_BIN"/cibuildwheel* 2>/dev/null | grep -q cibuildwheel; then
+            echo "FAIL: cibuildwheel binary not found in clean bin dir $CLEAN_BIN"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary found in clean bin path"
+
+      - name: Assert uv binary exists in clean bin path (extras=uv)
+        run: |
+          CLEAN_BIN=$(find "$RUNNER_TEMP/cibw" -name "*.clean" -type d 2>/dev/null | head -1)
+          echo "Checking for uv in: $CLEAN_BIN"
+          if [ -z "$CLEAN_BIN" ]; then
+            echo "FAIL: clean bin directory not found"
+            exit 1
+          fi
+          # When extras=uv, the uv binary should be exposed in the clean bin path
+          if ! ls "$CLEAN_BIN"/uv* 2>/dev/null | grep -q "uv"; then
+            echo "FAIL: uv binary not found in clean bin dir $CLEAN_BIN"
+            ls -la "$CLEAN_BIN" || true
+            exit 1
+          fi
+          echo "PASS: uv binary found in clean bin path alongside cibuildwheel"

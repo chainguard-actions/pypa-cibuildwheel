@@ -1,0 +1,41 @@
+name: Test cibuildwheel with uv extra
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          package-dir: ${{ github.workspace }}/pristine/pypa--cibuildwheel/v3.4.1/tests/fixtures/mypackage
+          output-dir: /tmp/wheelhouse-uv
+          only: cp311-manylinux_x86_64
+          extras: uv
+        continue-on-error: true
+
+      - name: Assert cibuildwheel was installed in venv
+        run: |
+          CIBW_BIN="$RUNNER_TEMP/cibw/bin.clean/cibuildwheel"
+          echo "Checking for cibuildwheel binary at: $CIBW_BIN"
+          ls -la "$RUNNER_TEMP/cibw/bin.clean/" 2>/dev/null || echo "(directory not found)"
+          if [ -f "$CIBW_BIN" ] || [ -L "$CIBW_BIN" ]; then
+            echo "PASS: cibuildwheel binary found in venv"
+          else
+            echo "FAIL: cibuildwheel binary not found at $CIBW_BIN"
+            exit 1
+          fi
+
+      - name: Assert uv binary exists in prepend-path when extras=uv
+        run: |
+          UV_BIN="$RUNNER_TEMP/cibw/bin.clean/uv"
+          echo "Checking for uv binary at: $UV_BIN"
+          ls -la "$RUNNER_TEMP/cibw/bin.clean/" 2>/dev/null || echo "(directory not found)"
+          if [ -f "$UV_BIN" ] || [ -L "$UV_BIN" ]; then
+            echo "PASS: uv binary found in venv when extras=uv"
+          else
+            echo "FAIL: uv binary not found at $UV_BIN"
+            exit 1
+          fi

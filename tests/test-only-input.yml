@@ -1,0 +1,78 @@
+name: Test only input
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Run the action with the 'only' input to build a specific wheel.
+      # The build step may fail without Docker, but we verify that
+      # cibuildwheel was installed (venv and clean bin path created).
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package-dir: tests/fixtures/sample-package
+          only: cp311-manylinux_x86_64
+
+      - name: Assert cibuildwheel venv was created
+        run: |
+          echo "Checking for cibuildwheel venv at $RUNNER_TEMP/cibw"
+          if [ ! -d "$RUNNER_TEMP/cibw" ]; then
+            echo "FAIL: cibuildwheel venv directory not found at $RUNNER_TEMP/cibw"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel venv directory exists"
+
+      - name: Assert cibuildwheel binary exists in venv
+        run: |
+          echo "Searching for cibuildwheel binary in $RUNNER_TEMP/cibw"
+          CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" 2>/dev/null | head -1)
+          echo "Found: $CIBW_BIN"
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found in $RUNNER_TEMP/cibw"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary found at $CIBW_BIN"
+
+      - name: Assert clean bin path directory was created
+        run: |
+          echo "Searching for clean bin path in $RUNNER_TEMP/cibw"
+          CLEAN_BIN=$(find "$RUNNER_TEMP/cibw" -name "*.clean" -type d 2>/dev/null | head -1)
+          echo "Found clean bin dir: $CLEAN_BIN"
+          if [ -z "$CLEAN_BIN" ]; then
+            echo "FAIL: clean bin directory not found under $RUNNER_TEMP/cibw"
+            exit 1
+          fi
+          echo "PASS: clean bin directory exists at $CLEAN_BIN"
+
+      - name: Assert cibuildwheel is accessible in clean bin path
+        run: |
+          CLEAN_BIN=$(find "$RUNNER_TEMP/cibw" -name "*.clean" -type d 2>/dev/null | head -1)
+          echo "Clean bin dir: $CLEAN_BIN"
+          if [ -z "$CLEAN_BIN" ]; then
+            echo "FAIL: clean bin directory not found"
+            exit 1
+          fi
+          if ! ls "$CLEAN_BIN"/cibuildwheel* 2>/dev/null | grep -q cibuildwheel; then
+            echo "FAIL: cibuildwheel not found in clean bin dir $CLEAN_BIN"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel found in clean bin path"
+
+      - name: Assert cibuildwheel is executable
+        run: |
+          CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" 2>/dev/null | head -1)
+          echo "Checking executable: $CIBW_BIN"
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found"
+            exit 1
+          fi
+          if [ ! -x "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary is not executable"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary is executable"
