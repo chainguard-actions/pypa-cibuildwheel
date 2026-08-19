@@ -1,0 +1,65 @@
+name: Test custom output-dir input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          package-dir: .
+          output-dir: my-custom-wheels
+        continue-on-error: true
+
+      - name: Assert cibuildwheel venv was created
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          echo "Checking venv at: $CIBW_VENV"
+          if [ ! -d "$CIBW_VENV" ]; then
+            echo "FAIL: cibuildwheel venv not created at $CIBW_VENV"
+            exit 1
+          fi
+          echo "PASS: venv created"
+
+      - name: Assert cibuildwheel binary exists in venv
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CIBW_BIN=$(find "$CIBW_VENV/bin" -name "cibuildwheel" 2>/dev/null | head -1)
+          echo "cibuildwheel binary: $CIBW_BIN"
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found in $CIBW_VENV/bin"
+            ls "$CIBW_VENV/bin" || true
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary found"
+
+      - name: Assert cibuildwheel --version works
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CIBW_BIN=$(find "$CIBW_VENV/bin" -name "cibuildwheel" 2>/dev/null | head -1)
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found"
+            exit 1
+          fi
+          VERSION_OUTPUT=$("$CIBW_BIN" --version 2>&1 || true)
+          echo "Version output: $VERSION_OUTPUT"
+          if ! echo "$VERSION_OUTPUT" | grep -qi "cibuildwheel"; then
+            echo "FAIL: --version output does not mention cibuildwheel"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel --version works"
+
+      - name: Assert uv is NOT in clean bin (no extras specified)
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CLEAN_BIN="$CIBW_VENV/bin.clean"
+          echo "Checking that uv is not in clean bin: $CLEAN_BIN"
+          if [ -f "$CLEAN_BIN/uv" ]; then
+            echo "FAIL: uv found in clean bin but extras=uv was not specified"
+            ls "$CLEAN_BIN" || true
+            exit 1
+          fi
+          echo "PASS: uv not in clean bin (as expected, no extras specified)"

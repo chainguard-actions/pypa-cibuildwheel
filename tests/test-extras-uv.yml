@@ -1,0 +1,82 @@
+name: Test extras input with uv
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          package-dir: .
+          output-dir: wheelhouse
+          extras: uv
+        continue-on-error: true
+
+      - name: Assert cibuildwheel venv was created
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          echo "Checking venv at: $CIBW_VENV"
+          if [ ! -d "$CIBW_VENV" ]; then
+            echo "FAIL: cibuildwheel venv not created at $CIBW_VENV"
+            exit 1
+          fi
+          echo "PASS: venv created"
+
+      - name: Assert cibuildwheel is in clean bin
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CLEAN_BIN="$CIBW_VENV/bin.clean"
+          echo "Checking clean bin: $CLEAN_BIN"
+          if [ ! -d "$CLEAN_BIN" ]; then
+            echo "FAIL: clean bin directory not found at $CLEAN_BIN"
+            ls "$CIBW_VENV" || true
+            exit 1
+          fi
+          if ! ls "$CLEAN_BIN/cibuildwheel"* 2>/dev/null | grep -q cibuildwheel; then
+            echo "FAIL: cibuildwheel not found in clean bin"
+            ls "$CLEAN_BIN" || true
+            exit 1
+          fi
+          echo "PASS: cibuildwheel found in clean bin"
+
+      - name: Assert uv is in clean bin (extras=uv was specified)
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CLEAN_BIN="$CIBW_VENV/bin.clean"
+          echo "Checking for uv in clean bin: $CLEAN_BIN"
+          if [ ! -d "$CLEAN_BIN" ]; then
+            echo "FAIL: clean bin directory not found"
+            exit 1
+          fi
+          # uv may be named 'uv' or 'uvx' etc, check for uv binary
+          UV_BIN=$(find "$CLEAN_BIN" -name "uv" -o -name "uv.*" 2>/dev/null | grep -v uvx | head -1)
+          echo "Found uv at: $UV_BIN"
+          if [ -z "$UV_BIN" ]; then
+            echo "FAIL: uv not found in clean bin $CLEAN_BIN"
+            ls "$CLEAN_BIN" || true
+            exit 1
+          fi
+          echo "PASS: uv found in clean bin alongside cibuildwheel"
+
+      - name: Assert uv binary is executable
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CLEAN_BIN="$CIBW_VENV/bin.clean"
+          UV_BIN=$(find "$CLEAN_BIN" -name "uv" 2>/dev/null | head -1)
+          if [ -z "$UV_BIN" ]; then
+            # Try the full venv bin
+            UV_BIN=$(find "$CIBW_VENV/bin" -name "uv" 2>/dev/null | head -1)
+          fi
+          echo "uv binary: $UV_BIN"
+          if [ -z "$UV_BIN" ]; then
+            echo "FAIL: uv binary not found"
+            exit 1
+          fi
+          if [ ! -x "$UV_BIN" ]; then
+            echo "FAIL: uv binary is not executable"
+            exit 1
+          fi
+          echo "PASS: uv binary is executable"

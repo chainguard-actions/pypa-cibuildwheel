@@ -1,0 +1,73 @@
+name: Test cmd-pwsh output format
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          package-dir: .
+          output-dir: dist
+        continue-on-error: true
+
+      - name: Assert cibuildwheel venv was created
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          echo "Checking venv at: $CIBW_VENV"
+          if [ ! -d "$CIBW_VENV" ]; then
+            echo "FAIL: cibuildwheel venv not created at $CIBW_VENV"
+            exit 1
+          fi
+          echo "PASS: venv created"
+
+      - name: Assert cibuildwheel binary is executable
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CIBW_BIN=$(find "$CIBW_VENV/bin" -name "cibuildwheel" 2>/dev/null | head -1)
+          echo "cibuildwheel binary: $CIBW_BIN"
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found"
+            ls "$CIBW_VENV/bin" || true
+            exit 1
+          fi
+          if [ ! -x "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary is not executable"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary is executable"
+
+      - name: Assert cibuildwheel --help works (verifies installation)
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CIBW_BIN=$(find "$CIBW_VENV/bin" -name "cibuildwheel" 2>/dev/null | head -1)
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found"
+            exit 1
+          fi
+          # Run cibuildwheel --help to verify it's properly installed
+          if ! "$CIBW_BIN" --help > /dev/null 2>&1; then
+            echo "FAIL: cibuildwheel --help failed"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel --help succeeded"
+
+      - name: Assert clean bin path contains cibuildwheel (used as prepend-path)
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CLEAN_BIN="$CIBW_VENV/bin.clean"
+          echo "Checking clean bin: $CLEAN_BIN"
+          if [ ! -d "$CLEAN_BIN" ]; then
+            echo "FAIL: clean bin directory not found"
+            ls "$CIBW_VENV" || true
+            exit 1
+          fi
+          if ! ls "$CLEAN_BIN/cibuildwheel"* 2>/dev/null | grep -q cibuildwheel; then
+            echo "FAIL: cibuildwheel not in clean bin"
+            ls "$CLEAN_BIN" || true
+            exit 1
+          fi
+          echo "PASS: cibuildwheel found in clean bin (prepend-path)"

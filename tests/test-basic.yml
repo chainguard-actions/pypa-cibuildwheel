@@ -1,0 +1,59 @@
+name: Test basic usage - cibuildwheel setup
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          package-dir: .
+          output-dir: wheelhouse
+        # cibuildwheel will fail (no Docker, no proper package), but the install step should succeed
+        continue-on-error: true
+
+      - name: Assert cibuildwheel was installed in venv
+        run: |
+          echo "Checking RUNNER_TEMP: $RUNNER_TEMP"
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          echo "Expected venv path: $CIBW_VENV"
+          if [ ! -d "$CIBW_VENV" ]; then
+            echo "FAIL: cibuildwheel venv directory not found at $CIBW_VENV"
+            exit 1
+          fi
+          echo "PASS: venv directory exists"
+
+      - name: Assert cibuildwheel binary exists in venv
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          # Find cibuildwheel binary in the venv bin directory
+          CIBW_BIN=$(find "$CIBW_VENV/bin" -name "cibuildwheel*" 2>/dev/null | head -1)
+          echo "Found cibuildwheel at: $CIBW_BIN"
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found in $CIBW_VENV/bin"
+            ls "$CIBW_VENV/bin" || true
+            exit 1
+          fi
+          echo "PASS: cibuildwheel binary found at $CIBW_BIN"
+
+      - name: Assert clean bin path exists with cibuildwheel symlink
+        run: |
+          CIBW_VENV="$RUNNER_TEMP/cibw"
+          CLEAN_BIN="$CIBW_VENV/bin.clean"
+          echo "Expected clean bin path: $CLEAN_BIN"
+          if [ ! -d "$CLEAN_BIN" ]; then
+            echo "FAIL: clean bin directory not found at $CLEAN_BIN"
+            ls "$CIBW_VENV" || true
+            exit 1
+          fi
+          CIBW_LINK=$(find "$CLEAN_BIN" -name "cibuildwheel*" 2>/dev/null | head -1)
+          echo "Found cibuildwheel link at: $CIBW_LINK"
+          if [ -z "$CIBW_LINK" ]; then
+            echo "FAIL: cibuildwheel not found in clean bin $CLEAN_BIN"
+            ls "$CLEAN_BIN" || true
+            exit 1
+          fi
+          echo "PASS: cibuildwheel found in clean bin path"

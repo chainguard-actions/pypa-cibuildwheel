@@ -54,6 +54,7 @@ runs:
         # Install cibuildwheel and build the command line
         "$PYTHON" -u << "EOF"
         import os
+        import shlex
         import shutil
         import sys
         import venv
@@ -103,12 +104,35 @@ runs:
 
         cibw_bin = [p for p in builder.bin_path.glob("cibuildwheel*") if p.stem == "cibuildwheel"][0]
 
-        def strip_newlines(s):
-            return str(s).replace("\n", "").replace("\r", "")
+        # Build the command line
+        cmd_args = [str(cibw_bin), os.environ["INPUT_PACKAGE_DIR"]]
+
+        if output_dir := os.environ.get("INPUT_OUTPUT_DIR"):
+            cmd_args += ["--output-dir", output_dir]
+
+        if config_file := os.environ.get("INPUT_CONFIG_FILE"):
+            cmd_args += ["--config-file", config_file]
+
+        if only := os.environ.get("INPUT_ONLY"):
+            cmd_args += ["--only", only]
+
+        cmd_bash = shlex.join(cmd_args)
+
+        def pwsh_quote(text):
+            # Wrap in single quotes and double-up any existing single quotes
+            return "'" + str(text).replace("'", "''") + "'"
+
+        # Prepend '& ' so PowerShell executes the quoted binary path
+        cmd_pwsh = "& " + " ".join(pwsh_quote(arg) for arg in cmd_args)
+
+        def sanitize(value):
+            # Strip newlines to prevent injection of additional key=value pairs into GITHUB_OUTPUT
+            return str(value).replace("\n", "").replace("\r", "")
 
         with open(os.environ["GITHUB_OUTPUT"], "at") as f:
-            f.write(f"prepend-path={strip_newlines(clean_bin_path)}\n")
-            f.write(f"cibw-bin={strip_newlines(cibw_bin)}\n")
+            f.write(f"prepend-path={sanitize(clean_bin_path)}\n")
+            f.write(f"cmd-bash={sanitize(cmd_bash)}\n")
+            f.write(f"cmd-pwsh={sanitize(cmd_pwsh)}\n")
 
         print("::endgroup::")
         EOF
@@ -123,34 +147,18 @@ runs:
     # Redirecting stderr to stdout to fix interleaving issue in Actions.
     - run: |
         export PATH="$CIBW_PREPEND_PATH:$PATH"
-        args=("$CIBW_BIN" "$INPUT_PACKAGE_DIR")
-        if [ -n "$INPUT_OUTPUT_DIR" ]; then args+=(--output-dir "$INPUT_OUTPUT_DIR"); fi
-        if [ -n "$INPUT_CONFIG_FILE" ]; then args+=(--config-file "$INPUT_CONFIG_FILE"); fi
-        if [ -n "$INPUT_ONLY" ]; then args+=(--only "$INPUT_ONLY"); fi
-        "${args[@]}" 2>&1
+        eval "$CIBW_CMD_BASH" 2>&1
       shell: bash
       if: runner.os != 'Windows'
       env:
         CIBW_PREPEND_PATH: ${{ steps.cibw.outputs.prepend-path }}
-        CIBW_BIN: ${{ steps.cibw.outputs.cibw-bin }}
-        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
-        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
-        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
-        INPUT_ONLY: ${{ inputs.only }}
+        CIBW_CMD_BASH: ${{ steps.cibw.outputs.cmd-bash }}
     # Windows needs powershell to interact nicely with Meson
     - run: |
         $env:PATH = "$env:CIBW_PREPEND_PATH;$env:PATH"
-        $args_list = @($env:INPUT_PACKAGE_DIR)
-        if ($env:INPUT_OUTPUT_DIR) { $args_list += '--output-dir', $env:INPUT_OUTPUT_DIR }
-        if ($env:INPUT_CONFIG_FILE) { $args_list += '--config-file', $env:INPUT_CONFIG_FILE }
-        if ($env:INPUT_ONLY) { $args_list += '--only', $env:INPUT_ONLY }
-        & $env:CIBW_BIN @args_list
+        Invoke-Expression $env:CIBW_CMD_PWSH
       shell: pwsh
       if: runner.os == 'Windows'
       env:
         CIBW_PREPEND_PATH: ${{ steps.cibw.outputs.prepend-path }}
-        CIBW_BIN: ${{ steps.cibw.outputs.cibw-bin }}
-        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
-        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
-        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
-        INPUT_ONLY: ${{ inputs.only }}
+        CIBW_CMD_PWSH: ${{ steps.cibw.outputs.cmd-pwsh }}
