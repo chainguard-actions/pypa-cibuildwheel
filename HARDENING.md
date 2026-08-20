@@ -8,15 +8,15 @@
 
 **Test Policy SHA:** `843adf9e4b8f85d0c08b27b9d0b09dd094b54702`
 
-**Harden Agent Version:** `1`
+**Harden Agent Version:** `2`
 
-Action **pypa--cibuildwheel/v2.23.4** was hardened automatically. 4 finding(s) were identified and resolved across 1 iteration(s).
+Action **pypa--cibuildwheel/v2.23.4** was hardened automatically. 6 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
 ### unpinned-uses (severity: high)
 
-The action uses `actions/setup-python@v5` with a mutable tag reference instead of a pinned 40-character SHA commit hash. This is vulnerable to supply-chain attacks if the tag is moved to a different commit.
+action.yml uses `actions/setup-python@v5` which is pinned to a mutable tag rather than a full 40-character commit SHA. This is vulnerable to supply-chain attacks if the tag is moved. It should be pinned to a specific commit SHA (e.g., `actions/setup-python@<40-char-sha> # v5`).
 
 Locations:
 
@@ -24,38 +24,60 @@ Locations:
 
 ### script-injection (severity: high)
 
-Sub-rule (a): Multiple ${{ }} expressions are directly interpolated inside run: shell command strings without going through env: variables.
+Rule (a) violation: Multiple `${{ }}` expressions are interpolated directly into `run:` shell command strings without going through env vars.
 
-In the 'cibw' step (bash heredoc):
-- Line 35: `"${{ steps.python.outputs.python-path }}"` is used directly as the shell command to invoke.
-- Line 53: `r"${{ github.action_path }}"` is interpolated into the Python script string inside the heredoc.
-- Line 56: `Path(r"${{ runner.temp }}")` is interpolated into the Python script string inside the heredoc.
+Step `cibw` (bash, starting line 32):
+- Line 34: `"${{ steps.python.outputs.python-path }}" -u << "EOF"` — steps context interpolated directly as the shell command
+- Line 53: `r"${{ github.action_path }}"` — github context interpolated inside a Python heredoc
+- Line 57: `r"${{ runner.temp }}"` — runner context interpolated inside a Python heredoc
 
-In the bash run step (Linux/macOS):
-- Line 68: `"${{ steps.cibw.outputs.cibw-path }}"` used directly as the command.
-- Line 69: `"${{ inputs.package-dir }}"` — attacker-controlled input directly interpolated.
-- Lines 70-72: `${{ inputs.output-dir ... }}`, `${{ inputs.config-file ... }}`, `${{ inputs.only ... }}` — attacker-controlled inputs directly interpolated.
-
-In the PowerShell run step (Windows):
-- Lines 77-82: Same set of expressions (`steps.cibw.outputs.cibw-path`, `inputs.package-dir`, `inputs.output-dir`, `inputs.config-file`, `inputs.only`) directly interpolated.
-
-Any ${{ ... }} expression inside a run: block is a script-injection risk because YAML template substitution happens before the shell ever sees the string, allowing injection of shell metacharacters.
+Any of these values flowing through YAML template substitution before the shell parses them constitutes a script-injection risk.
 
 Locations:
 
-- `action.yml:35`
+- `action.yml:34`
 - `action.yml:53`
-- `action.yml:56`
+- `action.yml:57`
+
+### script-injection (severity: high)
+
+Rule (a) violation: The bash `run:` step (line 68) directly interpolates multiple `${{ }}` expressions into the shell command string:
+- `"${{ steps.cibw.outputs.cibw-path }}"` (line 69)
+- `"${{ inputs.package-dir }}"` (line 70) — attacker-controlled input
+- `${{ inputs.output-dir != '' && format('--output-dir "{0}"', inputs.output-dir) || ''}}` (line 71) — attacker-controlled input
+- `${{ inputs.config-file != '' && format('--config-file "{0}"', inputs.config-file) || ''}}` (line 72) — attacker-controlled input
+- `${{ inputs.only != '' && format('--only "{0}"', inputs.only) || ''}}` (line 73) — attacker-controlled input
+
+All `inputs.*` values are caller-controlled and are interpolated directly into the shell command before the shell ever sees them, enabling command injection.
+
+Locations:
+
 - `action.yml:68`
 - `action.yml:69`
 - `action.yml:70`
 - `action.yml:71`
 - `action.yml:72`
-- `action.yml:77`
-- `action.yml:78`
+- `action.yml:73`
+
+### script-injection (severity: high)
+
+Rule (a) violation: The PowerShell `run:` step (line 79) directly interpolates the same set of `${{ }}` expressions into the shell command string:
+- `"${{ steps.cibw.outputs.cibw-path }}"` (line 80)
+- `"${{ inputs.package-dir }}"` (line 81) — attacker-controlled input
+- `${{ inputs.output-dir != '' && format('--output-dir "{0}"', inputs.output-dir) || ''}}` (line 82) — attacker-controlled input
+- `${{ inputs.config-file != '' && format('--config-file "{0}"', inputs.config-file) || ''}}` (line 83) — attacker-controlled input
+- `${{ inputs.only != '' && format('--only "{0}"', inputs.only) || ''}}` (line 84) — attacker-controlled input
+
+All `inputs.*` values are caller-controlled and are interpolated directly into the PowerShell command before the shell ever sees them, enabling command injection.
+
+Locations:
+
 - `action.yml:79`
 - `action.yml:80`
 - `action.yml:81`
+- `action.yml:82`
+- `action.yml:83`
+- `action.yml:84`
 
 ### static-inline-injection (severity: high)
 
@@ -81,9 +103,10 @@ Locations:
 
 **Notes:**
 
-1. Pinned actions/setup-python@v5 to SHA a26af69be951a213d495a4c3e4e4022e16d87065.
-2. Fixed script-injection in the 'cibw' bash heredoc step: moved PYTHON_PATH, ACTION_PATH, RUNNER_TEMP_PATH to env: block; Python code now reads ACTION_PATH and RUNNER_TEMP_PATH via os.environ[] instead of inline ${{ }} expressions.
-3. Fixed script-injection in the bash run step (Linux/macOS): moved all ${{ }} expressions (cibw-path, package-dir, output-dir, config-file, only) to env: block; rewrote script to build args array using env vars with conditional checks.
-4. Fixed script-injection in the PowerShell run step (Windows): same env: approach; rewrote script to build PowerShell args array using $env: variables.
-5. The static-inline-injection findings for inputs.package-dir in both bash and PowerShell steps are resolved by the same env: fixes.
+Fixed all findings in hardened/action/action.yml:
+1. Pinned actions/setup-python@v5 to full SHA a26af69be951a213d495a4c3e4e4022e16d87065
+2. In the 'cibw' step: moved steps.python.outputs.python-path → PYTHON_PATH, github.action_path → ACTION_PATH, runner.temp → RUNNER_TEMP_PATH into env: block; updated Python heredoc to use os.environ[] instead of r"${{ }}" interpolation
+3. In the bash run step: moved all ${{ }} expressions (cibw-path, package-dir, output-dir, config-file, only) to env: block; used bash array to safely build argument list with proper quoting
+4. In the PowerShell run step: same env vars used with a PowerShell array (@()) for safe argument construction
+5. package-dir is always passed as a positional argument (not optional) so it uses "$INPUT_PACKAGE_DIR" directly; optional inputs (output-dir, config-file, only) use conditional array appending
 

@@ -1,0 +1,2 @@
+[tool.cibuildwheel]
+build = ["cp312-manylinux_x86_64"]

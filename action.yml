@@ -91,31 +91,31 @@ runs:
     # Redirecting stderr to stdout to fix interleaving issue in Actions.
     - env:
         CIBW_PATH: ${{ steps.cibw.outputs.cibw-path }}
-        PACKAGE_DIR: ${{ inputs.package-dir }}
-        OUTPUT_DIR: ${{ inputs.output-dir }}
-        CONFIG_FILE: ${{ inputs.config-file }}
-        ONLY: ${{ inputs.only }}
+        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
+        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
+        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
+        INPUT_ONLY: ${{ inputs.only }}
       run: |
         args=()
-        args+=("$PACKAGE_DIR")
-        if [ -n "$OUTPUT_DIR" ]; then args+=(--output-dir "$OUTPUT_DIR"); fi
-        if [ -n "$CONFIG_FILE" ]; then args+=(--config-file "$CONFIG_FILE"); fi
-        if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
+        args+=("$INPUT_PACKAGE_DIR")
+        [ -n "$INPUT_OUTPUT_DIR" ] && args+=(--output-dir "$INPUT_OUTPUT_DIR")
+        [ -n "$INPUT_CONFIG_FILE" ] && args+=(--config-file "$INPUT_CONFIG_FILE")
+        [ -n "$INPUT_ONLY" ] && args+=(--only "$INPUT_ONLY")
         "$CIBW_PATH" "${args[@]}" 2>&1
       shell: bash
       if: runner.os != 'Windows'
     # Windows needs powershell to interact nicely with Meson
     - env:
         CIBW_PATH: ${{ steps.cibw.outputs.cibw-path }}
-        PACKAGE_DIR: ${{ inputs.package-dir }}
-        OUTPUT_DIR: ${{ inputs.output-dir }}
-        CONFIG_FILE: ${{ inputs.config-file }}
-        ONLY: ${{ inputs.only }}
+        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
+        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
+        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
+        INPUT_ONLY: ${{ inputs.only }}
       run: |
-        $args = @($env:PACKAGE_DIR)
-        if ($env:OUTPUT_DIR -ne '') { $args += '--output-dir', $env:OUTPUT_DIR }
-        if ($env:CONFIG_FILE -ne '') { $args += '--config-file', $env:CONFIG_FILE }
-        if ($env:ONLY -ne '') { $args += '--only', $env:ONLY }
+        $args = @($env:INPUT_PACKAGE_DIR)
+        if ($env:INPUT_OUTPUT_DIR) { $args += '--output-dir', $env:INPUT_OUTPUT_DIR }
+        if ($env:INPUT_CONFIG_FILE) { $args += '--config-file', $env:INPUT_CONFIG_FILE }
+        if ($env:INPUT_ONLY) { $args += '--only', $env:INPUT_ONLY }
         & $env:CIBW_PATH @args
       shell: pwsh
       if: runner.os == 'Windows'
