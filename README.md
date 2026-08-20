@@ -8,7 +8,7 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 
 | Version | Tag | Upstream commit |
 |---------|-----|-----------------|
-| v2.23.4 | [`v2.23.4`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v2.23.4) | — |
+| v2.23.4 | [`v2.23.4`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v2.23.4) | [`e5486e0`](https://github.com/pypa/cibuildwheel/commit/e5486e0b831d3a4954f271c2a053fbbc0e227d6a) |
 | v3.4.1 | [`v3.4.1`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v3.4.1) | [`8d2b08b`](https://github.com/pypa/cibuildwheel/commit/8d2b08b68458a16aeb24b64e68a09ab1c8e82084) |
 | v4.0.0 | [`v4.0.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.0.0) | [`f03ac76`](https://github.com/pypa/cibuildwheel/commit/f03ac7617d6cff873ccf24cc0d567ef5ba5a9e6d) |
 | v4.1.0 | [`v4.1.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.1.0) | [`2947353`](https://github.com/pypa/cibuildwheel/commit/294735312765b09d24a2fbec22660ce817587d55) |
