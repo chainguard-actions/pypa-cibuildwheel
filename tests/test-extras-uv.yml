@@ -1,0 +1,57 @@
+name: Test cibuildwheel extras uv
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Run the action with extras=uv to install uv alongside cibuildwheel.
+      # The build step will fail without a real package, but the setup phase should succeed.
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package-dir: .
+          extras: uv
+
+      - name: Assert cibuildwheel venv was created (setup phase succeeded)
+        run: |
+          VENV_PATH="$RUNNER_TEMP/cibw"
+          echo "Checking venv at: $VENV_PATH"
+          if [ ! -d "$VENV_PATH" ]; then
+            echo "FAIL: cibuildwheel venv directory not found at '$VENV_PATH'"
+            exit 1
+          fi
+          echo "PASS: venv directory exists"
+
+      - name: Assert uv is installed in the venv
+        run: |
+          VENV_PATH="$RUNNER_TEMP/cibw"
+          UV_BIN=$(find "$VENV_PATH" -name "uv" -type f 2>/dev/null | head -1)
+          if [ -z "$UV_BIN" ]; then
+            echo "FAIL: uv binary not found in venv (extras=uv should have installed it)"
+            exit 1
+          fi
+          echo "PASS: uv found at '$UV_BIN'"
+          VERSION=$("$UV_BIN" --version 2>&1 || true)
+          echo "uv version: $VERSION"
+
+      - name: Assert uv is exposed in the clean bin path
+        run: |
+          VENV_PATH="$RUNNER_TEMP/cibw"
+          # The action creates a "bin.clean" directory with symlinks to exposed binaries
+          # When 'uv' extra is set, uv should also be in the clean bin path
+          CLEAN_BIN=$(find "$VENV_PATH" -name "*.clean" -type d 2>/dev/null | head -1)
+          if [ -z "$CLEAN_BIN" ]; then
+            echo "FAIL: clean bin directory not found in venv"
+            exit 1
+          fi
+          echo "Clean bin path: $CLEAN_BIN"
+          if [ ! -e "$CLEAN_BIN/uv" ]; then
+            echo "FAIL: uv not found in clean bin directory (should be exposed when extras=uv)"
+            exit 1
+          fi
+          echo "PASS: uv found in clean bin directory"

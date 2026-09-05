@@ -1,0 +1,91 @@
+pr:
+  paths:
+    exclude:
+      - .github/**
+      - bin/*
+      - docs/**
+      - examples/github-*
+      - examples/ci*
+      - examples/travis-ci-*
+      - .ci*
+      - .pre-commit-config.yaml
+      - .readthedocs.yml
+      - .travis.yml
+      - README.md
+      - properdocs.yml
+      - noxfile.py
+
+jobs:
+- job: tests
+  strategy:
+    matrix:
+      linux_313:
+        imageName: "ubuntu-latest"
+        pythonVersion: "3.13"
+        testSelect: "native"
+      android_313:
+        imageName: "ubuntu-latest"
+        pythonVersion: "3.13"
+        testSelect: "android"
+      macos_313:
+        imageName: "macos-latest"
+        pythonVersion: "3.13"
+        testSelect: "native"
+      ios_313:
+        imageName: "macos-14"  # See https://github.com/actions/runner-images/issues/12777
+        pythonVersion: "3.13"
+        testSelect: "ios"
+      android_macos_313:
+        imageName: "macos-latest"
+        pythonVersion: "3.13"
+        testSelect: "android"
+      windows_313:
+        imageName: "windows-latest"
+        pythonVersion: "3.13"
+        testSelect: "native"
+  timeoutInMinutes: 180
+  pool:
+    vmImage: $(imageName)
+  variables:
+    # Relocate cibuildwheel's download cache (interpreters) and the per-worker
+    # test pip caches (which live under it) to a stable, cacheable path.
+    CIBW_CACHE_PATH: $(Pipeline.Workspace)/.cibw-cache
+
+  steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: $(pythonVersion)
+
+    - task: Cache@2
+      displayName: 'Cache cibuildwheel downloads'
+      inputs:
+        # build-platforms.toml carries the interpreter pins; bump the version
+        # prefix to force a cold cache. restoreKeys lets a stale cache still seed
+        # a new run (cibuildwheel re-downloads only what's missing).
+        key: 'cibw-cache | v1 | "$(imageName)" | "$(testSelect)" | cibuildwheel/resources/build-platforms.toml'
+        restoreKeys: |
+          cibw-cache | v1 | "$(imageName)" | "$(testSelect)"
+        path: $(CIBW_CACHE_PATH)
+
+    - task: JavaToolInstaller@0
+      condition: and(eq(variables['testSelect'], 'android'), eq(variables['Agent.OS'], 'Linux'))
+      inputs:
+        versionSpec: '17'
+        jdkArchitectureOption: 'x64'
+        jdkSourceOption: 'PreInstalled'
+
+    - bash: docker run --rm --privileged docker.io/tonistiigi/binfmt:latest --install all
+      condition: and(eq(variables['imageName'], 'ubuntu-latest'), eq(variables['testSelect'], 'native'))
+      displayName: 'Install binfmt on Linux'
+
+    - bash: python -m pip install -U pip && python -m pip install -e. --group test
+      displayName: 'Update pip and install cibuildwheel --group test'
+
+    - bash: echo "##vso[task.setvariable variable=CIBW_ENABLE;]all"
+      condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+      displayName: Set CIBW_ENABLE to all (main branch)
+
+    - bash: |
+        echo "CIBW_ENABLE = $CIBW_ENABLE"
+        python ./bin/run_tests.py --test-select $(testSelect)
+      displayName: 'Run tests'

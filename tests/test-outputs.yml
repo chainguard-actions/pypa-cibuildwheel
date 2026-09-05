@@ -1,0 +1,53 @@
+name: Test cibuildwheel outputs
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # The action installs cibuildwheel in a venv and then tries to build wheels.
+      # Without a real Python package, the build step will fail.
+      # We use continue-on-error to still verify the setup phase succeeded.
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package-dir: .
+          output-dir: wheelhouse
+
+      - name: Assert cibuildwheel was installed in the venv
+        run: |
+          VENV_PATH="$RUNNER_TEMP/cibw"
+          echo "Checking venv at: $VENV_PATH"
+          if [ ! -d "$VENV_PATH" ]; then
+            echo "FAIL: cibuildwheel venv directory not found at '$VENV_PATH'"
+            exit 1
+          fi
+          echo "PASS: venv directory exists"
+
+          # Check that cibuildwheel binary exists in the venv
+          CIBW_BIN=$(find "$VENV_PATH" -name "cibuildwheel" -type f 2>/dev/null | head -1)
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found in venv"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel found at '$CIBW_BIN'"
+
+      - name: Assert cibuildwheel is executable and reports a version
+        run: |
+          VENV_PATH="$RUNNER_TEMP/cibw"
+          CIBW_BIN=$(find "$VENV_PATH" -name "cibuildwheel" -type f 2>/dev/null | head -1)
+          if [ -z "$CIBW_BIN" ]; then
+            echo "FAIL: cibuildwheel binary not found in venv"
+            exit 1
+          fi
+          VERSION=$("$CIBW_BIN" --version 2>&1 || true)
+          echo "cibuildwheel version output: $VERSION"
+          if ! echo "$VERSION" | grep -qi "cibuildwheel"; then
+            echo "FAIL: cibuildwheel --version did not return expected output"
+            exit 1
+          fi
+          echo "PASS: cibuildwheel is installed and reports version"
