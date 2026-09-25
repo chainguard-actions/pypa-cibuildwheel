@@ -44,7 +44,7 @@ runs:
         curl "${args[@]}" \
           -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
           "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
-    - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+    - uses: chainguard-actions/actions-setup-python@69608a2586b78d6a34fa2f1b4d6a1b606adb8a5b # v6.2.0
       id: python
       with:
         python-version: "3.11 - 3.14"
@@ -126,7 +126,7 @@ runs:
         cmd_pwsh = "& " + " ".join(pwsh_quote(arg) for arg in cmd_args)
 
         def sanitize(value):
-            # Strip newline characters to prevent GITHUB_OUTPUT injection
+            # Strip newline/carriage-return characters to prevent GITHUB_OUTPUT injection
             return str(value).replace("\n", "").replace("\r", "")
 
         with open(os.environ["GITHUB_OUTPUT"], "at") as f:

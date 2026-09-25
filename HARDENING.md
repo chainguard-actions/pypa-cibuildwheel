@@ -10,42 +10,25 @@
 
 **Harden Agent Version:** `2`
 
-Action **pypa--cibuildwheel/v3.4.1** was hardened automatically. 3 finding(s) were identified and resolved across 1 iteration(s).
+Action **pypa--cibuildwheel/v3.4.1** was hardened automatically. 1 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
 ### github-env-injection (severity: high)
 
-In action.yml, the Python heredoc script writes user-controlled input values to $GITHUB_OUTPUT without the required sanitization step (printf '%s' ... | tr -d '\n\r'). Specifically, cmd_bash (built via shlex.join() from INPUT_PACKAGE_DIR, INPUT_OUTPUT_DIR, INPUT_CONFIG_FILE, INPUT_ONLY — all sourced from inputs.*) and cmd_pwsh (built via pwsh_quote() from the same inputs) are written directly to GITHUB_OUTPUT. While shlex.join() and pwsh_quote() handle shell quoting, they do not strip newline characters. A newline embedded in any input value (e.g. inputs.package-dir) would inject additional key=value pairs into GITHUB_OUTPUT, potentially overwriting subsequent step outputs.
+In the `cibw` step of action.yml, the Python heredoc builds `cmd_bash` and `cmd_pwsh` from user-controlled inputs (`inputs.package-dir`, `inputs.output-dir`, `inputs.config-file`, `inputs.only`) via env vars `INPUT_PACKAGE_DIR`, `INPUT_OUTPUT_DIR`, `INPUT_CONFIG_FILE`, and `INPUT_ONLY`, then writes them directly to `$GITHUB_OUTPUT` using `f.write(f"cmd-bash={cmd_bash}\n")` and `f.write(f"cmd-pwsh={cmd_pwsh}\n")`. Although `shlex.join` and `pwsh_quote` provide shell quoting, neither strips embedded newline characters. An attacker-controlled input containing a newline (e.g. `package-dir: ".\nsome-key=injected-value"`) would inject additional key=value pairs into GITHUB_OUTPUT, potentially overwriting other step outputs. The required sanitization step (`printf '%s' "$VAR" | tr -d '\n\r'`) is absent before every write.
 
 Locations:
 
-- `action.yml:112`
-- `action.yml:113`
-
-### script-injection (severity: high)
-
-Rule (a) violation in .github/workflows/test.yml: The 'Test cibuildwheel' step directly interpolates GitHub Actions expressions into the run: shell command string. The offending line is: `run: uv run --no-sync bin/run_tests.py --test-select=${{ matrix.test_select || 'native' }} ${{ (runner.os == 'Linux' && runner.arch == 'X64') && '--run-podman' || '' }}`. Both ${{ matrix.test_select }} and ${{ runner.os }}/${{ runner.arch }} are substituted by the Actions template engine before the shell ever sees the command, allowing an attacker who controls matrix values to inject arbitrary shell commands.
-
-Locations:
-
-- `.github/workflows/test.yml:195`
-
-### script-injection (severity: high)
-
-Rule (a) violation in .github/workflows/update-dependencies.yml: The 'Run update: docs user projects' step directly interpolates a GitHub Actions expression into the run: shell command string. The offending line is: `run: nox --force-color -s update_proj -- --auth=${{ secrets.GITHUB_TOKEN }}`. Any ${{ ... }} expression interpolated directly into a run: block is a script-injection risk because the value is substituted by the Actions template engine before the shell parses the command. The token value should instead be passed via an env: variable and referenced as $ENV_VAR in the script.
-
-Locations:
-
-- `.github/workflows/update-dependencies.yml:49`
+- `action.yml:100`
 
 ## Iteration Notes
 
 ### Iteration 1
 
-**Fixes applied:** github-env-injection, script-injection
+**Fixes applied:** github-env-injection
 
 **Notes:**
 
-Fixed three security findings: (1) action.yml github-env-injection: Added a sanitize() Python helper that strips \n and \r from cmd_bash, cmd_pwsh, and prepend-path values before writing to GITHUB_OUTPUT, preventing newline injection. (2) test.yml script-injection: Moved matrix.test_select and runner.os/runner.arch expressions into env: block as TEST_SELECT and RUN_PODMAN, using a bash array to safely pass the optional --run-podman flag. (3) update-dependencies.yml script-injection: Moved secrets.GITHUB_TOKEN into an env: block as GITHUB_AUTH_TOKEN and referenced it as "$GITHUB_AUTH_TOKEN" in the shell command.
+Added a `sanitize()` Python function in the `cibw` step's heredoc that strips `\n` and `\r` characters from all values before writing them to `$GITHUB_OUTPUT`. The three writes (`prepend-path`, `cmd-bash`, `cmd-pwsh`) now all call `sanitize()` on their values, preventing newline injection attacks where user-controlled inputs (package-dir, output-dir, config-file, only) could inject additional key=value pairs into GITHUB_OUTPUT.
 
