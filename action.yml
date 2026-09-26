@@ -44,7 +44,7 @@ runs:
         curl "${args[@]}" \
           -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
           "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
-    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+    - uses: chainguard-actions/actions-setup-python@9bc81c95771c379a24d235203ec35ccbac904e5a # v7.0.0
       id: python
       with:
         python-version: "3.11 - 3.14"
@@ -104,16 +104,20 @@ runs:
 
         cibw_bin = [p for p in builder.bin_path.glob("cibuildwheel*") if p.stem == "cibuildwheel"][0]
 
-        # Build the command line
-        cmd_args = [str(cibw_bin), os.environ["INPUT_PACKAGE_DIR"]]
+        # Sanitize user-controlled inputs to prevent newline injection into GITHUB_OUTPUT
+        def sanitize(value):
+            return value.replace("\n", "").replace("\r", "")
 
-        if output_dir := os.environ.get("INPUT_OUTPUT_DIR"):
+        # Build the command line
+        cmd_args = [str(cibw_bin), sanitize(os.environ["INPUT_PACKAGE_DIR"])]
+
+        if output_dir := sanitize(os.environ.get("INPUT_OUTPUT_DIR", "")):
             cmd_args += ["--output-dir", output_dir]
 
-        if config_file := os.environ.get("INPUT_CONFIG_FILE"):
+        if config_file := sanitize(os.environ.get("INPUT_CONFIG_FILE", "")):
             cmd_args += ["--config-file", config_file]
 
-        if only := os.environ.get("INPUT_ONLY"):
+        if only := sanitize(os.environ.get("INPUT_ONLY", "")):
             cmd_args += ["--only", only]
 
         cmd_bash = shlex.join(cmd_args)
@@ -125,15 +129,10 @@ runs:
         # Prepend '& ' so PowerShell executes the quoted binary path
         cmd_pwsh = "& " + " ".join(pwsh_quote(arg) for arg in cmd_args)
 
-        def sanitize(value):
-            # Strip newlines to prevent injection of additional key=value pairs
-            # into the GITHUB_OUTPUT file
-            return str(value).replace("\r", "").replace("\n", "")
-
         with open(os.environ["GITHUB_OUTPUT"], "at") as f:
-            f.write(f"prepend-path={sanitize(clean_bin_path)}\n")
-            f.write(f"cmd-bash={sanitize(cmd_bash)}\n")
-            f.write(f"cmd-pwsh={sanitize(cmd_pwsh)}\n")
+            f.write(f"prepend-path={clean_bin_path}\n")
+            f.write(f"cmd-bash={cmd_bash}\n")
+            f.write(f"cmd-pwsh={cmd_pwsh}\n")
 
         print("::endgroup::")
         EOF
