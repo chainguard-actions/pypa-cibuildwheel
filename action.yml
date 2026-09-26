@@ -44,7 +44,7 @@ runs:
         curl "${args[@]}" \
           -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
           "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
-    - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+    - uses: chainguard-actions/actions-setup-python@6e055a15c9b620aae4c8d0a8b85a69f93f1cce70 # v6.3.0
       id: python
       with:
         python-version: "3.11 - 3.14"
@@ -127,18 +127,12 @@ runs:
 
         def sanitize(value):
             # Strip newlines to prevent GITHUB_OUTPUT injection
-            return str(value).replace("\n", "").replace("\r", "")
+            return str(value).replace("\r", "").replace("\n", "")
 
-        # Write cmd-args as a multiline output (one arg per line) to avoid eval
-        delimiter = "CIBW_ARGS_EOF"
         with open(os.environ["GITHUB_OUTPUT"], "at") as f:
             f.write(f"prepend-path={sanitize(clean_bin_path)}\n")
             f.write(f"cmd-bash={sanitize(cmd_bash)}\n")
             f.write(f"cmd-pwsh={sanitize(cmd_pwsh)}\n")
-            f.write(f"cmd-args<<{delimiter}\n")
-            for arg in cmd_args:
-                f.write(f"{sanitize(arg)}\n")
-            f.write(f"{delimiter}\n")
 
         print("::endgroup::")
         EOF
@@ -153,13 +147,12 @@ runs:
     # Redirecting stderr to stdout to fix interleaving issue in Actions.
     - run: |
         export PATH="$CIBW_PREPEND_PATH:$PATH"
-        mapfile -t cibw_args <<< "$CIBW_CMD_ARGS"
-        "${cibw_args[@]}" 2>&1
+        eval "$CIBW_CMD_BASH" 2>&1
       shell: bash
       if: runner.os != 'Windows'
       env:
         CIBW_PREPEND_PATH: ${{ steps.cibw.outputs.prepend-path }}
-        CIBW_CMD_ARGS: ${{ steps.cibw.outputs.cmd-args }}
+        CIBW_CMD_BASH: ${{ steps.cibw.outputs.cmd-bash }}
     # Windows needs powershell to interact nicely with Meson
     - run: |
         $env:PATH = "$env:CIBW_PREPEND_PATH;$env:PATH"
