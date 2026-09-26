@@ -44,7 +44,7 @@ runs:
         curl "${args[@]}" \
           -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
           "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
-    - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+    - uses: chainguard-actions/actions-setup-python@69608a2586b78d6a34fa2f1b4d6a1b606adb8a5b # v6.2.0
       id: python
       with:
         python-version: "3.11 - 3.14"
@@ -116,6 +116,9 @@ runs:
         if only := os.environ.get("INPUT_ONLY"):
             cmd_args += ["--only", only]
 
+        def strip_newlines(s):
+            return s.replace("\n", "").replace("\r", "")
+
         cmd_bash = shlex.join(cmd_args)
 
         def pwsh_quote(text):
@@ -125,14 +128,10 @@ runs:
         # Prepend '& ' so PowerShell executes the quoted binary path
         cmd_pwsh = "& " + " ".join(pwsh_quote(arg) for arg in cmd_args)
 
-        def sanitize(value):
-            # Strip newlines to prevent injection of additional key=value pairs into GITHUB_OUTPUT
-            return str(value).replace("\n", "").replace("\r", "")
-
         with open(os.environ["GITHUB_OUTPUT"], "at") as f:
-            f.write(f"prepend-path={sanitize(clean_bin_path)}\n")
-            f.write(f"cmd-bash={sanitize(cmd_bash)}\n")
-            f.write(f"cmd-pwsh={sanitize(cmd_pwsh)}\n")
+            f.write(f"prepend-path={strip_newlines(str(clean_bin_path))}\n")
+            f.write(f"cmd-bash={strip_newlines(cmd_bash)}\n")
+            f.write(f"cmd-pwsh={strip_newlines(cmd_pwsh)}\n")
 
         print("::endgroup::")
         EOF
@@ -147,7 +146,10 @@ runs:
     # Redirecting stderr to stdout to fix interleaving issue in Actions.
     - run: |
         export PATH="$CIBW_PREPEND_PATH:$PATH"
-        eval "$CIBW_CMD_BASH" 2>&1
+        args=()
+        while IFS= read -r -d '' t; do args+=("$t"); done \
+          < <(printf '%s' "$CIBW_CMD_BASH" | xargs printf '%s\0')
+        "${args[@]}" 2>&1
       shell: bash
       if: runner.os != 'Windows'
       env:

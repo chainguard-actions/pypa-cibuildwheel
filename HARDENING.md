@@ -10,45 +10,37 @@
 
 **Harden Agent Version:** `2`
 
-Action **pypa--cibuildwheel/v4.0.0** was hardened automatically. 2 finding(s) were identified and resolved across 2 iteration(s).
+Action **pypa--cibuildwheel/v4.0.0** was hardened automatically. 2 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
-### script-injection (severity: high)
+### github-env-injection (severity: high)
 
-Sub-rule (a): Direct ${{ ... }} expression interpolation inside a run: shell command. The 'Test cibuildwheel' step interpolates ${{ matrix.test_select || 'native' }} and ${{ (runner.os == 'Linux' && runner.arch == 'X64') && '--run-podman' || '' }} directly into the shell command string: `run: uv run --no-sync bin/run_tests.py --test-select=${{ matrix.test_select || 'native' }} ${{ (runner.os == 'Linux' && runner.arch == 'X64') && '--run-podman' || '' }}`. These expressions flow through YAML template substitution before the shell processes them, enabling potential command injection via matrix values.
-
-Locations:
-
-- `.github/workflows/test.yml:196`
-
-### script-injection (severity: high)
-
-Sub-rule (a): Direct ${{ ... }} expression interpolation inside a run: shell command. The 'Run update: docs user projects' step interpolates ${{ secrets.GITHUB_TOKEN }} directly into the shell command string: `run: uvx nox --force-color -s update_proj -- --auth=${{ secrets.GITHUB_TOKEN }}`. Any ${{ ... }} expression directly inside a run: block flows through YAML template substitution before the shell processes it, which is a script-injection risk.
+The Python heredoc in the `cibw` step writes `cmd-bash` and `cmd-pwsh` to `$GITHUB_OUTPUT` using values derived from user-controlled inputs (`inputs.package-dir`, `inputs.output-dir`, `inputs.config-file`, `inputs.only`) via the env vars `INPUT_PACKAGE_DIR`, `INPUT_OUTPUT_DIR`, `INPUT_CONFIG_FILE`, `INPUT_ONLY`. While `shlex.join` and `pwsh_quote` handle shell quoting, neither strips newline characters (`\n`). A newline embedded in any input value would inject an additional `key=value` line into `GITHUB_OUTPUT`, enabling output injection. The required sanitization (`printf '%s' ... | tr -d '\n\r'`) is absent before the `f.write(...)` calls.
 
 Locations:
 
-- `.github/workflows/update-dependencies.yml:50`
+- `action.yml:88`
+
+### script-injection (severity: high)
+
+Sub-rule (b): The bash step runs `eval "$CIBW_CMD_BASH" 2>&1`, where `CIBW_CMD_BASH` is set from `steps.cibw.outputs.cmd-bash`. That output was constructed from user-controlled inputs (`inputs.package-dir`, `inputs.output-dir`, `inputs.config-file`, `inputs.only`). Although the variable is double-quoted (preventing word splitting), `eval` re-parses the expanded string as a shell command, so shell metacharacters (`;`, `|`, `&`, `$(...)`, backticks, etc.) embedded in any input value will be interpreted by the shell. This allows an attacker to inject arbitrary shell commands via the action inputs.
+
+Locations:
+
+- `action.yml:97`
 
 ## Iteration Notes
 
 ### Iteration 1
 
-**Fixes applied:** script-injection
+**Fixes applied:** github-env-injection, script-injection
 
 **Notes:**
 
-Fixed two script-injection findings:
-1. hardened/action/.github/workflows/test.yml (line 196): Moved `${{ matrix.test_select || 'native' }}` into env var TEST_SELECT and `${{ (runner.os == 'Linux' && runner.arch == 'X64') && '--run-podman' || '' }}` into env var RUN_PODMAN. Shell script uses `"$TEST_SELECT"` and `${RUN_PODMAN:+"$RUN_PODMAN"}` (conditional expansion drops the flag when empty).
-2. hardened/action/.github/workflows/update-dependencies.yml (line 50): Moved `${{ secrets.GITHUB_TOKEN }}` into env var GITHUB_AUTH_TOKEN. Shell script uses `--auth="$GITHUB_AUTH_TOKEN"`.
+Fixed two high-severity findings in hardened/action/action.yml:
 
-### Iteration 2
+1. github-env-injection: Added a `strip_newlines()` helper in the Python heredoc that strips `\n` and `\r` from all three values written to $GITHUB_OUTPUT (`prepend-path`, `cmd-bash`, `cmd-pwsh`). This prevents newline injection via user-controlled inputs (package-dir, output-dir, config-file, only).
 
-**Fixes applied:** github-env-injection
-
-**Notes:**
-
-Fixed two github-env-injection findings:
-1. action.yml: Added a `sanitize()` Python helper that strips \n and \r from cmd_bash, cmd_pwsh, and prepend-path values before writing to $GITHUB_OUTPUT, preventing newline injection from user-supplied inputs.
-2. .github/workflows/test.yml: Added `safe_cibw_enable=$(printf '%s' "${CIBW_ENABLE}" | tr -d '\n\r')` before writing CIBW_ENABLE to $GITHUB_ENV, preventing injection via attacker-controlled branch names or PR label values.
+2. script-injection: Replaced `eval "$CIBW_CMD_BASH" 2>&1` with a safe xargs-based array construction: `printf '%s' "$CIBW_CMD_BASH" | xargs printf '%s\0'` parses the shell-quoted string into NUL-delimited tokens (xargs honors shell quoting but does not interpret shell metacharacters), which are read into a bash array and executed directly as `"${args[@]}"` without any shell re-parsing.
 
