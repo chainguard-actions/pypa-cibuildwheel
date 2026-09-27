@@ -44,17 +44,16 @@ runs:
         curl "${args[@]}" \
           -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
           "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
-    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+    - uses: chainguard-actions/actions-setup-python@9bc81c95771c379a24d235203ec35ccbac904e5a # v7.0.0
       id: python
       with:
         python-version: "3.11 - 3.14"
         update-environment: false
     - id: cibw
       run: |
-        # Install cibuildwheel and build the command line
+        # Install cibuildwheel, build the command line, and run it
         "$PYTHON" -u << "EOF"
         import os
-        import shlex
         import shutil
         import sys
         import venv
@@ -104,7 +103,7 @@ runs:
 
         cibw_bin = [p for p in builder.bin_path.glob("cibuildwheel*") if p.stem == "cibuildwheel"][0]
 
-        # Build the command line
+        # Build the command argument list (no shell quoting needed — passed directly to exec)
         cmd_args = [str(cibw_bin), os.environ["INPUT_PACKAGE_DIR"]]
 
         if output_dir := os.environ.get("INPUT_OUTPUT_DIR"):
@@ -116,25 +115,21 @@ runs:
         if only := os.environ.get("INPUT_ONLY"):
             cmd_args += ["--only", only]
 
-        cmd_bash = shlex.join(cmd_args)
-
-        def pwsh_quote(text):
-            # Wrap in single quotes and double-up any existing single quotes
-            return "'" + str(text).replace("'", "''") + "'"
-
-        # Prepend '& ' so PowerShell executes the quoted binary path
-        cmd_pwsh = "& " + " ".join(pwsh_quote(arg) for arg in cmd_args)
-
-        def sanitize(value):
-            # Strip newlines to prevent injection of additional key=value pairs into GITHUB_OUTPUT
-            return str(value).replace("\r", "").replace("\n", "")
-
+        # Write only the prepend-path output (not user-controlled)
         with open(os.environ["GITHUB_OUTPUT"], "at") as f:
-            f.write(f"prepend-path={sanitize(clean_bin_path)}\n")
-            f.write(f"cmd-bash={sanitize(cmd_bash)}\n")
-            f.write(f"cmd-pwsh={sanitize(cmd_pwsh)}\n")
+            f.write(f"prepend-path={clean_bin_path}\n")
 
         print("::endgroup::")
+
+        # Prepend the clean bin path to PATH so exposed binaries are available
+        env = os.environ.copy()
+        path_sep = ";" if sys.platform == "win32" else ":"
+        env["PATH"] = str(clean_bin_path) + path_sep + env.get("PATH", "")
+
+        # Run cibuildwheel directly — no eval/Invoke-Expression, no shell injection risk
+        # Redirecting stderr to stdout to fix interleaving issue in Actions.
+        result = run(cmd_args, env=env)
+        sys.exit(result.returncode)
         EOF
       shell: bash
       env:
@@ -144,21 +139,3 @@ runs:
         INPUT_CONFIG_FILE: ${{ inputs.config-file }}
         INPUT_ONLY: ${{ inputs.only }}
         INPUT_EXTRAS: ${{ inputs.extras }}
-    # Redirecting stderr to stdout to fix interleaving issue in Actions.
-    - run: |
-        export PATH="$CIBW_PREPEND_PATH:$PATH"
-        eval "$CIBW_CMD_BASH" 2>&1
-      shell: bash
-      if: runner.os != 'Windows'
-      env:
-        CIBW_PREPEND_PATH: ${{ steps.cibw.outputs.prepend-path }}
-        CIBW_CMD_BASH: ${{ steps.cibw.outputs.cmd-bash }}
-    # Windows needs powershell to interact nicely with Meson
-    - run: |
-        $env:PATH = "$env:CIBW_PREPEND_PATH;$env:PATH"
-        Invoke-Expression $env:CIBW_CMD_PWSH
-      shell: pwsh
-      if: runner.os == 'Windows'
-      env:
-        CIBW_PREPEND_PATH: ${{ steps.cibw.outputs.prepend-path }}
-        CIBW_CMD_PWSH: ${{ steps.cibw.outputs.cmd-pwsh }}
