@@ -41,7 +41,7 @@ runs:
           -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
           "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
     # Set up the version of Python that supports pyodide
-    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+    - uses: chainguard-actions/actions-setup-python@ace3254bb5011efbd0650a7120a0441ebd1f9400 # v5
       id: python
       with:
         python-version: "3.12"
@@ -97,11 +97,10 @@ runs:
         INPUT_ONLY: ${{ inputs.only }}
       run: |
         args=()
-        args+=("$INPUT_PACKAGE_DIR")
         [ -n "$INPUT_OUTPUT_DIR" ] && args+=(--output-dir "$INPUT_OUTPUT_DIR")
         [ -n "$INPUT_CONFIG_FILE" ] && args+=(--config-file "$INPUT_CONFIG_FILE")
         [ -n "$INPUT_ONLY" ] && args+=(--only "$INPUT_ONLY")
-        "$CIBW_PATH" "${args[@]}" 2>&1
+        "$CIBW_PATH" "$INPUT_PACKAGE_DIR" "${args[@]}" 2>&1
       shell: bash
       if: runner.os != 'Windows'
     # Windows needs powershell to interact nicely with Meson
@@ -112,10 +111,10 @@ runs:
         INPUT_CONFIG_FILE: ${{ inputs.config-file }}
         INPUT_ONLY: ${{ inputs.only }}
       run: |
-        $args = @($env:INPUT_PACKAGE_DIR)
-        if ($env:INPUT_OUTPUT_DIR) { $args += '--output-dir', $env:INPUT_OUTPUT_DIR }
-        if ($env:INPUT_CONFIG_FILE) { $args += '--config-file', $env:INPUT_CONFIG_FILE }
-        if ($env:INPUT_ONLY) { $args += '--only', $env:INPUT_ONLY }
-        & $env:CIBW_PATH @args
+        $args = @()
+        if ($env:INPUT_OUTPUT_DIR -ne '') { $args += '--output-dir'; $args += $env:INPUT_OUTPUT_DIR }
+        if ($env:INPUT_CONFIG_FILE -ne '') { $args += '--config-file'; $args += $env:INPUT_CONFIG_FILE }
+        if ($env:INPUT_ONLY -ne '') { $args += '--only'; $args += $env:INPUT_ONLY }
+        & "$env:CIBW_PATH" "$env:INPUT_PACKAGE_DIR" @args
       shell: pwsh
       if: runner.os == 'Windows'
