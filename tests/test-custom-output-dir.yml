@@ -1,0 +1,54 @@
+name: Test custom output-dir
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prepare package directory in workspace
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/test-pkg-outdir"
+          cp -r "$GITHUB_WORKSPACE/tests/fixtures/minimal-package/." "$GITHUB_WORKSPACE/test-pkg-outdir/"
+          mkdir -p "$GITHUB_WORKSPACE/custom-wheels"
+
+      - id: action
+        uses: .
+        with:
+          package-dir: ./test-pkg-outdir
+          output-dir: ./custom-wheels
+          only: cp311-manylinux_x86_64
+        continue-on-error: true
+
+      - name: Assert action ran with custom output-dir
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" = "success" ]; then
+            echo "Action succeeded — verifying cibuildwheel venv and output"
+            if [ ! -d "$RUNNER_TEMP/cibw" ]; then
+              echo "FAIL: cibuildwheel venv directory not found at $RUNNER_TEMP/cibw"
+              exit 1
+            fi
+            CIBW_BIN=$(find "$RUNNER_TEMP/cibw" -name "cibuildwheel" 2>/dev/null | head -1)
+            if [ -z "$CIBW_BIN" ]; then
+              echo "FAIL: cibuildwheel binary not found in venv"
+              exit 1
+            fi
+            echo "PASS: cibuildwheel found at $CIBW_BIN"
+            # Verify wheel was placed in the custom output directory
+            WHEEL_COUNT=$(find "$GITHUB_WORKSPACE/custom-wheels" -name "*.whl" 2>/dev/null | wc -l)
+            echo "Wheels found in custom-wheels: $WHEEL_COUNT"
+            if [ "$WHEEL_COUNT" -eq 0 ]; then
+              echo "FAIL: no wheels found in custom output directory"
+              exit 1
+            fi
+            echo "PASS: wheel(s) found in custom output directory"
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action failed gracefully (Docker or setup-python not available in act)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi

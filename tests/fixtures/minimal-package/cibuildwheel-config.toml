@@ -1,0 +1,3 @@
+[tool.cibuildwheel]
+# Only build for Python 3.11 on Linux x86_64 to minimize build time
+build = ["cp311-manylinux_x86_64"]
