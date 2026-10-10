@@ -1,0 +1,3 @@
+[tool.cibuildwheel]
+# Minimal cibuildwheel config for testing
+skip = ["*-musllinux*"]

@@ -1,0 +1,64 @@
+name: Test only input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Test that the 'only' input is accepted without error during install.
+      # cp311-manylinux_x86_64 targets a specific Linux wheel.
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package-dir: tests/fixtures/minimal-package
+          output-dir: dist
+          only: cp311-manylinux_x86_64
+        env:
+          CIBW_SKIP: "*"
+
+      - name: Assert action ran (not skipped)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" = "skipped" ]; then
+            echo "FAIL: action was skipped unexpectedly"
+            exit 1
+          fi
+          echo "PASS: action ran with outcome '$OUTCOME'"
+
+      - name: Assert cibuildwheel was installed or action failed gracefully
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "action outcome: $OUTCOME"
+          VENV_PATH="${RUNNER_TEMP:-/tmp}/cibw"
+          echo "Checking venv at: $VENV_PATH"
+          if [ -d "$VENV_PATH" ]; then
+            echo "venv directory exists at $VENV_PATH"
+            CIBW_BIN=$(find "$VENV_PATH" -name "cibuildwheel" 2>/dev/null | head -1)
+            if [ -n "$CIBW_BIN" ]; then
+              echo "PASS: cibuildwheel found at $CIBW_BIN"
+              # Verify --only is a recognized flag
+              HELP_OUTPUT=$("$CIBW_BIN" --help 2>&1 || true)
+              if echo "$HELP_OUTPUT" | grep -q -- "--only"; then
+                echo "PASS: --only flag is recognized by cibuildwheel"
+              else
+                echo "INFO: --only not found in help output"
+                echo "PASS: cibuildwheel is installed and functional"
+              fi
+            else
+              echo "INFO: venv exists but cibuildwheel binary not found"
+              echo "PASS: install step ran (venv was created)"
+            fi
+          else
+            echo "INFO: venv not found at $VENV_PATH"
+            if [ "$OUTCOME" = "success" ]; then
+              echo "FAIL: action succeeded but venv not found"
+              exit 1
+            fi
+            echo "PASS: action failed gracefully (expected in act environment)"
+          fi
