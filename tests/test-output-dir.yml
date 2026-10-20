@@ -1,0 +1,26 @@
+name: Test custom output-dir
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Clean output dir
+        run: rm -rf "$GITHUB_WORKSPACE/custom-out dir"
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg
+          output-dir: custom-out dir
+        env:
+          CIBW_PROJECT_REQUIRES_PYTHON: ">=9.0"
+          CIBW_ALLOW_EMPTY: "1"
+      - name: Assert custom output dir (with a space) was created
+        run: |
+          ls -la "$GITHUB_WORKSPACE"
+          if [ ! -d "$GITHUB_WORKSPACE/custom-out dir" ]; then
+            echo "FAIL: output dir 'custom-out dir' not created"
+            exit 1
+          fi
+          echo "PASS"

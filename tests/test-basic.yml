@@ -1,0 +1,48 @@
+name: Test basic usage (empty build selection, default output dir)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Clean output dir
+        run: rm -rf "$GITHUB_WORKSPACE/wheelhouse"
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg
+        env:
+          # No Python version satisfies this, so no build identifiers are
+          # selected and no container engine is needed.
+          CIBW_PROJECT_REQUIRES_PYTHON: ">=9.0"
+          CIBW_ALLOW_EMPTY: "1"
+      - name: Assert cibuildwheel was installed into the venv
+        run: |
+          ls -la "$RUNNER_TEMP/cibw/bin" || true
+          if [ ! -x "$RUNNER_TEMP/cibw/bin/cibuildwheel" ]; then
+            echo "FAIL: cibuildwheel binary not found in venv"
+            exit 1
+          fi
+          echo "PASS: venv binary present"
+      - name: Assert clean bin dir exposes only cibuildwheel
+        run: |
+          CLEAN="$RUNNER_TEMP/cibw/bin.clean"
+          ls -la "$CLEAN" || true
+          if [ ! -e "$CLEAN/cibuildwheel" ]; then
+            echo "FAIL: cibuildwheel not exposed in $CLEAN"
+            exit 1
+          fi
+          if [ -e "$CLEAN/python" ] || [ -e "$CLEAN/pip" ] || [ -e "$CLEAN/uv" ]; then
+            echo "FAIL: unexpected binaries exposed in $CLEAN"
+            exit 1
+          fi
+          "$CLEAN/cibuildwheel" --help > /dev/null
+          echo "PASS"
+      - name: Assert default output dir was created
+        run: |
+          if [ ! -d "$GITHUB_WORKSPACE/wheelhouse" ]; then
+            echo "FAIL: default output dir 'wheelhouse' not created"
+            exit 1
+          fi
+          echo "PASS"

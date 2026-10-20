@@ -1,0 +1,3 @@
+[tool.cibuildwheel]
+build = "cp312-*"
+skip = "cp312-*"

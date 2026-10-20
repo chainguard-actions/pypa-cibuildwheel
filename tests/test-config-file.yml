@@ -1,0 +1,35 @@
+name: Test config-file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Clean output dir
+        run: rm -rf "$GITHUB_WORKSPACE/config-out"
+      # The config file selects cp312-* and skips cp312-*, i.e. nothing.
+      # Only if the config file is honored does the build finish without
+      # needing a container engine.
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg-plain
+          output-dir: config-out
+          config-file: tests/fixtures/cibw-config.toml
+        env:
+          CIBW_ALLOW_EMPTY: "1"
+      - name: Assert step succeeded and output dir exists
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" != "success" ]; then
+            echo "FAIL: expected success"
+            exit 1
+          fi
+          if [ ! -d "$GITHUB_WORKSPACE/config-out" ]; then
+            echo "FAIL: output dir not created"
+            exit 1
+          fi
+          echo "PASS"

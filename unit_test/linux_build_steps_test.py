@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+import textwrap
+from pprint import pprint
+
+import pytest
+
+import cibuildwheel.platforms.linux
+from cibuildwheel.errors import ConfigurationError
+from cibuildwheel.oci_container import OCIContainerEngineConfig
+from cibuildwheel.options import CommandLineArguments, Options
+
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+def test_linux_container_split(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Tests splitting linux builds by container image, container engine, and before_all
+    """
+
+    args = CommandLineArguments.defaults()
+    args.platform = "linux"
+
+    (tmp_path / "pyproject.toml").write_text(
+        textwrap.dedent(
+            """
+                [tool.cibuildwheel]
+                manylinux-x86_64-image = "normal_container_image"
+                manylinux-i686-image = "normal_container_image"
+                build = "*-manylinux_x86_64"
+                skip = "[gp]p*"
+                archs = "x86_64 i686"
+
+                [[tool.cibuildwheel.overrides]]
+                select = "cp{39,310,311}-*"
+                manylinux-x86_64-image = "other_container_image"
+                manylinux-i686-image = "other_container_image"
+
+                [[tool.cibuildwheel.overrides]]
+                select = "cp310-*"
+                before-all = "echo 'a cp310-only command'"
+
+                [[tool.cibuildwheel.overrides]]
+                select = "cp311-*"
+                container-engine = "docker; create_args: --privileged"
+            """
+        )
+    )
+
+    monkeypatch.chdir(tmp_path)
+    options = Options("linux", command_line_arguments=args, env={})
+
+    python_configurations = cibuildwheel.platforms.linux.get_python_configurations(
+        options.globals.build_selector, options.globals.architectures
+    )
+
+    build_steps = list(cibuildwheel.platforms.linux.get_build_steps(options, python_configurations))
+
+    # helper functions to extract test info
+    def identifiers(step: cibuildwheel.platforms.linux.BuildStep) -> list[str]:
+        return [c.identifier for c in step.platform_configs]
+
+    def before_alls(step: cibuildwheel.platforms.linux.BuildStep) -> list[str]:
+        return [options.build_options(c.identifier).before_all for c in step.platform_configs]
+
+    def container_engines(
+        step: cibuildwheel.platforms.linux.BuildStep,
+    ) -> list[OCIContainerEngineConfig]:
+        return [options.build_options(c.identifier).container_engine for c in step.platform_configs]
+
+    pprint(build_steps)
+
+    default_container_engine = OCIContainerEngineConfig(name="docker")
+
+    assert build_steps[0].container_image == "other_container_image"
+    assert identifiers(build_steps[0]) == ["cp39-manylinux_x86_64"]
+    assert before_alls(build_steps[0]) == [""]
+    assert container_engines(build_steps[0]) == [default_container_engine]
+
+    assert build_steps[1].container_image == "other_container_image"
+    assert identifiers(build_steps[1]) == ["cp310-manylinux_x86_64"]
+    assert before_alls(build_steps[1]) == ["echo 'a cp310-only command'"]
+    assert container_engines(build_steps[1]) == [default_container_engine]
+
+    assert build_steps[2].container_image == "other_container_image"
+    assert identifiers(build_steps[2]) == ["cp311-manylinux_x86_64"]
+    assert before_alls(build_steps[2]) == [""]
+    assert container_engines(build_steps[2]) == [
+        OCIContainerEngineConfig(name="docker", create_args=("--privileged",))
+    ]
+
+    assert build_steps[3].container_image == "normal_container_image"
+    assert identifiers(build_steps[3]) == [
+        "cp312-manylinux_x86_64",
+        "cp313-manylinux_x86_64",
+        "cp314-manylinux_x86_64",
+        "cp314t-manylinux_x86_64",
+        "cp315-manylinux_x86_64",
+        "cp315t-manylinux_x86_64",
+    ]
+    assert before_alls(build_steps[3]) == [""] * 6
+    assert container_engines(build_steps[3]) == [default_container_engine] * 6
+
+
+def test_package_dir_outside_working_directory_raises_configuration_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    package_dir = tmp_path / "package"
+    package_dir.mkdir()
+    package_dir.joinpath("pyproject.toml").touch()
+
+    monkeypatch.chdir(work_dir)
+
+    command_line_arguments = CommandLineArguments.defaults()
+    command_line_arguments.package_dir = package_dir
+    options = Options(platform="linux", command_line_arguments=command_line_arguments, env={})
+
+    with pytest.raises(
+        ConfigurationError, match="package_dir must be inside the working directory"
+    ):
+        cibuildwheel.platforms.linux.build(options, tmp_path / "build")

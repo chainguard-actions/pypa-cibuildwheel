@@ -1,0 +1,28 @@
+name: Test extras=uv exposes uv binary
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg
+          extras: " uv , "
+        env:
+          CIBW_PROJECT_REQUIRES_PYTHON: ">=9.0"
+          CIBW_ALLOW_EMPTY: "1"
+      - name: Assert uv and cibuildwheel are exposed in the clean bin dir
+        run: |
+          CLEAN="$RUNNER_TEMP/cibw/bin.clean"
+          ls -la "$CLEAN" || true
+          for b in cibuildwheel uv; do
+            if [ ! -e "$CLEAN/$b" ]; then
+              echo "FAIL: $b not exposed in $CLEAN"
+              exit 1
+            fi
+          done
+          "$CLEAN/uv" --version
+          echo "PASS"
