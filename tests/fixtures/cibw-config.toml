@@ -1,0 +1,4 @@
+[tool.cibuildwheel]
+# A valid identifier for another platform: passes selector validation but
+# selects nothing on Linux, so no wheels are built (CIBW_ALLOW_EMPTY=1).
+build = "cp312-win_amd64"

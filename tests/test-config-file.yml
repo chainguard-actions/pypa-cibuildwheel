@@ -1,0 +1,27 @@
+name: Test config-file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CIBW_ALLOW_EMPTY: "1"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg
+          config-file: tests/fixtures/cibw-config.toml
+          output-dir: wheelhouse-config
+      - name: Assert no wheels built
+        run: |
+          if ls wheelhouse-config/*.whl >/dev/null 2>&1; then
+            echo "FAIL: no wheels expected"
+            exit 1
+          fi
+          if [ ! -e "$RUNNER_TEMP/cibw/bin.clean/cibuildwheel" ]; then
+            echo "FAIL: cibuildwheel not installed"
+            exit 1
+          fi
+          echo "PASS"
