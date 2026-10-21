@@ -18,6 +18,7 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 | v4.3.0 | [`v4.3.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.0) | [`adba99c`](https://github.com/pypa/cibuildwheel/commit/adba99c781d3746d38b3a09b1cf797965bcb7fe6) |
 | v4.3.1 | [`v4.3.1`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.1) | [`b3395e2`](https://github.com/pypa/cibuildwheel/commit/b3395e271a35f73dad77f21802abe9b986dfe299) |
 | v4.3.2 | [`v4.3.2`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.2) | [`f111813`](https://github.com/pypa/cibuildwheel/commit/f11181315571b24e4a3c67f1a828532793f2df55) |
+| v4.3.3 | [`v4.3.3`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.3) | [`8c2dcd2`](https://github.com/pypa/cibuildwheel/commit/8c2dcd2e96041a619f5ff03c9638d7941e2553a4) |
 
 ## Privacy
 
