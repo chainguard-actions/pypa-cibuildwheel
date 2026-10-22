@@ -20,6 +20,7 @@ inputs:
 branding:
   icon: package
   color: yellow
+
 runs:
   using: composite
   steps:
@@ -46,14 +47,15 @@ runs:
       with:
         python-version: "3.12"
         update-environment: false
+
     - id: cibw
       env:
-        PYTHON_PATH: ${{ steps.python.outputs.python-path }}
-        ACTION_PATH: ${{ github.action_path }}
-        RUNNER_TEMP_PATH: ${{ runner.temp }}
+        CIBW_PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        CIBW_ACTION_PATH: ${{ github.action_path }}
+        CIBW_RUNNER_TEMP: ${{ runner.temp }}
       run: |
         # Install cibuildwheel
-        "$PYTHON_PATH" -u << "EOF"
+        "$CIBW_PYTHON_PATH" -u << "EOF"
         import os
         import shutil
         import sys
@@ -73,11 +75,11 @@ runs:
             def post_setup(self, context):
                 super().post_setup(context)
                 self.bin_path = Path(context.env_exe).parent
-                run([sys.executable, "-m", "pip", "--python", context.env_exe, "install", os.environ["ACTION_PATH"]], check=True)
+                run([sys.executable, "-m", "pip", "--python", context.env_exe, "install", os.environ["CIBW_ACTION_PATH"]], check=True)
 
 
         print("::group::Install cibuildwheel")
-        venv_path = Path(os.environ["RUNNER_TEMP_PATH"]) / "cibw"
+        venv_path = Path(os.environ["CIBW_RUNNER_TEMP"]) / "cibw"
         if venv_path.exists():
             shutil.rmtree(venv_path)
         builder = EnvBuilder()
@@ -88,33 +90,35 @@ runs:
         print("::endgroup::")
         EOF
       shell: bash
+
     # Redirecting stderr to stdout to fix interleaving issue in Actions.
     - env:
-        CIBW_PATH: ${{ steps.cibw.outputs.cibw-path }}
-        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
-        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
-        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
-        INPUT_ONLY: ${{ inputs.only }}
+        CIBW_EXE_PATH: ${{ steps.cibw.outputs.cibw-path }}
+        CIBW_INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
+        CIBW_INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
+        CIBW_INPUT_CONFIG_FILE: ${{ inputs.config-file }}
+        CIBW_INPUT_ONLY: ${{ inputs.only }}
       run: |
-        args=()
-        [ -n "$INPUT_OUTPUT_DIR" ] && args+=(--output-dir "$INPUT_OUTPUT_DIR")
-        [ -n "$INPUT_CONFIG_FILE" ] && args+=(--config-file "$INPUT_CONFIG_FILE")
-        [ -n "$INPUT_ONLY" ] && args+=(--only "$INPUT_ONLY")
-        "$CIBW_PATH" "$INPUT_PACKAGE_DIR" "${args[@]}" 2>&1
+        cibw_args=("$CIBW_INPUT_PACKAGE_DIR")
+        if [ -n "$CIBW_INPUT_OUTPUT_DIR" ]; then cibw_args+=(--output-dir "$CIBW_INPUT_OUTPUT_DIR"); fi
+        if [ -n "$CIBW_INPUT_CONFIG_FILE" ]; then cibw_args+=(--config-file "$CIBW_INPUT_CONFIG_FILE"); fi
+        if [ -n "$CIBW_INPUT_ONLY" ]; then cibw_args+=(--only "$CIBW_INPUT_ONLY"); fi
+        "$CIBW_EXE_PATH" "${cibw_args[@]}" 2>&1
       shell: bash
       if: runner.os != 'Windows'
+
     # Windows needs powershell to interact nicely with Meson
     - env:
-        CIBW_PATH: ${{ steps.cibw.outputs.cibw-path }}
-        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
-        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
-        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
-        INPUT_ONLY: ${{ inputs.only }}
+        CIBW_EXE_PATH: ${{ steps.cibw.outputs.cibw-path }}
+        CIBW_INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
+        CIBW_INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
+        CIBW_INPUT_CONFIG_FILE: ${{ inputs.config-file }}
+        CIBW_INPUT_ONLY: ${{ inputs.only }}
       run: |
-        $args = @()
-        if ($env:INPUT_OUTPUT_DIR -ne '') { $args += '--output-dir'; $args += $env:INPUT_OUTPUT_DIR }
-        if ($env:INPUT_CONFIG_FILE -ne '') { $args += '--config-file'; $args += $env:INPUT_CONFIG_FILE }
-        if ($env:INPUT_ONLY -ne '') { $args += '--only'; $args += $env:INPUT_ONLY }
-        & "$env:CIBW_PATH" "$env:INPUT_PACKAGE_DIR" @args
+        $cibwArgs = @("$env:CIBW_INPUT_PACKAGE_DIR")
+        if ($env:CIBW_INPUT_OUTPUT_DIR) { $cibwArgs += @('--output-dir', "$env:CIBW_INPUT_OUTPUT_DIR") }
+        if ($env:CIBW_INPUT_CONFIG_FILE) { $cibwArgs += @('--config-file', "$env:CIBW_INPUT_CONFIG_FILE") }
+        if ($env:CIBW_INPUT_ONLY) { $cibwArgs += @('--only', "$env:CIBW_INPUT_ONLY") }
+        & "$env:CIBW_EXE_PATH" @cibwArgs
       shell: pwsh
       if: runner.os == 'Windows'

@@ -10,37 +10,44 @@
 
 **Harden Agent Version:** `2`
 
-Action **pypa--cibuildwheel/v2.23.4** was hardened automatically. 4 finding(s) were identified and resolved across 1 iteration(s).
+Action **pypa--cibuildwheel/v2.23.4** was hardened automatically. 6 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
 ### unpinned-uses (severity: high)
 
-The action uses `actions/setup-python@v5` which is pinned to a mutable tag rather than a full 40-character commit SHA. This is vulnerable to supply-chain attacks if the tag is moved to a different commit.
+action.yml uses an action by a version tag instead of a full commit SHA: `uses: actions/setup-python@v5`.
 
 Locations:
 
-- `action.yml:27`
+- `action.yml:28`
 
 ### script-injection (severity: high)
 
-Sub-rule (a): Multiple `${{ }}` expressions are directly interpolated inside `run:` shell command strings, allowing script injection. In the `cibw` step: `${{ steps.python.outputs.python-path }}` is used as the shell interpreter path, `${{ github.action_path }}` is embedded in a Python heredoc, and `${{ runner.temp }}` is embedded in a Python heredoc — all without going through env vars. In the bash run step: `${{ steps.cibw.outputs.cibw-path }}`, `${{ inputs.package-dir }}`, `${{ inputs.output-dir }}`, `${{ inputs.config-file }}`, and `${{ inputs.only }}` are all interpolated directly into the shell command string. In the pwsh run step: the same set of expressions (`${{ steps.cibw.outputs.cibw-path }}`, `${{ inputs.package-dir }}`, `${{ inputs.output-dir }}`, `${{ inputs.config-file }}`, `${{ inputs.only }}`) are interpolated directly into the PowerShell command string. Attacker-controlled inputs (package-dir, output-dir, config-file, only) can inject arbitrary shell commands.
+Sub-rule (a): the 'cibw' step puts ${{ }} expressions straight into the run: script. The lines are `"${{ steps.python.outputs.python-path }}" -u << "EOF"`, `r"${{ github.action_path }}"` and `Path(r"${{ runner.temp }}")`. Because the heredoc is quoted, bash does not expand it, but the YAML template substitution still happens first. These values should be passed through env: variables instead.
 
 Locations:
 
 - `action.yml:35`
-- `action.yml:53`
+- `action.yml:37`
 - `action.yml:57`
-- `action.yml:69`
-- `action.yml:70`
-- `action.yml:71`
-- `action.yml:72`
-- `action.yml:73`
-- `action.yml:79`
-- `action.yml:80`
-- `action.yml:81`
-- `action.yml:82`
-- `action.yml:83`
+- `action.yml:61`
+
+### script-injection (severity: high)
+
+Sub-rule (a): the bash run step (non-Windows) puts expressions straight into the shell command. The lines are `"${{ steps.cibw.outputs.cibw-path }}"`, `"${{ inputs.package-dir }}"`, and `${{ inputs.output-dir != '' && format('--output-dir "{0}"', inputs.output-dir) || ''}}`, plus the same pattern for inputs.config-file and inputs.only. An attacker who controls an input can inject shell commands. These values should go through env: variables and be double-quoted when the script uses them.
+
+Locations:
+
+- `action.yml:74`
+
+### script-injection (severity: high)
+
+Sub-rule (a): the pwsh run step (Windows) puts expressions straight into the script. The lines are `& "${{ steps.cibw.outputs.cibw-path }}"`, `"${{ inputs.package-dir }}"`, and format() expressions built from inputs.output-dir, inputs.config-file and inputs.only. An attacker who controls an input can inject PowerShell commands. These values should go through env: variables, read in the script as $env:VAR.
+
+Locations:
+
+- `action.yml:85`
 
 ### static-inline-injection (severity: high)
 
@@ -66,9 +73,5 @@ Locations:
 
 **Notes:**
 
-Fixed all findings in hardened/action/action.yml:
-1. Pinned actions/setup-python@v5 to full SHA a26af69be951a213d495a4c3e4e4022e16d87065.
-2. In the cibw step: moved ${{ steps.python.outputs.python-path }}, ${{ github.action_path }}, and ${{ runner.temp }} to env: block as PYTHON_PATH, ACTION_PATH, RUNNER_TEMP_PATH; updated the Python heredoc to use os.environ[] instead of inline expressions.
-3. In the bash run step: moved all ${{ }} expressions (cibw-path, package-dir, output-dir, config-file, only) to env: block; replaced the inline conditional format() expressions with bash array construction for optional flags.
-4. In the pwsh run step: moved all ${{ }} expressions to env: block; replaced inline conditional format() expressions with PowerShell array construction using $env:VAR_NAME syntax and & invocation operator.
+Pinned actions/setup-python to a26af69be951a213d495a4c3e4e4022e16d87065 (v5). Moved every ${{ }} expression into step env: blocks. The install step reads the Python path, action path and runner temp from env vars, and the Python heredoc reads them with os.environ. The bash run step builds a cibw_args array with conditional --output-dir/--config-file/--only flags, keeping 2>&1. The pwsh step builds a $cibwArgs array from $env: vars and runs & "$env:CIBW_EXE_PATH" @cibwArgs. As before, each optional flag is passed only when its input is non-empty.
 
