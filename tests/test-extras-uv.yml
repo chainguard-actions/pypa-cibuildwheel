@@ -1,0 +1,32 @@
+name: Test extras (uv)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CIBW_BUILD: cp312-macosx_x86_64
+      CIBW_ALLOW_EMPTY: "true"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg
+          output-dir: uv-wheelhouse
+          extras: " uv , "
+      - name: Assert uv and cibuildwheel exposed
+        run: |
+          ls -la "$RUNNER_TEMP/cibw/bin.clean" || true
+          for b in cibuildwheel uv; do
+            if [ ! -e "$RUNNER_TEMP/cibw/bin.clean/$b" ]; then
+              echo "FAIL: $b not exposed in clean bin dir"
+              exit 1
+            fi
+          done
+          "$RUNNER_TEMP/cibw/bin.clean/uv" --version
+          if [ -e "$RUNNER_TEMP/cibw/bin.clean/pip" ]; then
+            echo "FAIL: pip should not be exposed"
+            exit 1
+          fi
+          echo "PASS"

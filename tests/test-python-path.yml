@@ -1,0 +1,35 @@
+name: Test python-path input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CIBW_BUILD: cp312-macosx_x86_64
+      CIBW_ALLOW_EMPTY: "true"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: py
+        with:
+          python-version: "3.12"
+          update-environment: false
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg
+          output-dir: pp-wheelhouse
+          python-path: ${{ steps.py.outputs.python-path }}
+      - name: Assert venv built with supplied interpreter
+        run: |
+          cfg="$RUNNER_TEMP/cibw/pyvenv.cfg"
+          cat "$cfg" || true
+          if ! grep -qE '^version(_info)? = 3\.12' "$cfg"; then
+            echo "FAIL: venv was not created with Python 3.12"
+            exit 1
+          fi
+          if [ ! -d "$GITHUB_WORKSPACE/pp-wheelhouse" ]; then
+            echo "FAIL: output dir not created"
+            exit 1
+          fi
+          echo "PASS"

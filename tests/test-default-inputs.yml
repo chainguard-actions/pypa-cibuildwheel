@@ -1,0 +1,22 @@
+name: Test default inputs
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CIBW_BUILD: cp312-macosx_x86_64
+      CIBW_ALLOW_EMPTY: "true"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Clean default output dir
+        run: rm -rf "$GITHUB_WORKSPACE/wheelhouse"
+      - id: action
+        uses: .
+      - name: Assert default output dir "wheelhouse" created
+        run: |
+          if [ ! -d "$GITHUB_WORKSPACE/wheelhouse" ]; then
+            echo "FAIL: default wheelhouse dir not created"
+            exit 1
+          fi
+          echo "PASS"

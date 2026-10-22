@@ -1,0 +1,31 @@
+name: Test config-file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # build selector comes from the config file (macOS only -> nothing on Linux)
+      CIBW_ALLOW_EMPTY: "true"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Clean output dir
+        run: rm -rf "$GITHUB_WORKSPACE/cfg-wheelhouse"
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg
+          output-dir: cfg-wheelhouse
+          config-file: tests/fixtures/cibw-config.toml
+      - name: Assert run succeeded with output dir
+        run: |
+          if [ ! -d "$GITHUB_WORKSPACE/cfg-wheelhouse" ]; then
+            echo "FAIL: output dir not created"
+            exit 1
+          fi
+          count=$(find "$GITHUB_WORKSPACE/cfg-wheelhouse" -name '*.whl' | wc -l)
+          if [ "$count" -ne 0 ]; then
+            echo "FAIL: expected no wheels, found $count"
+            exit 1
+          fi
+          echo "PASS"

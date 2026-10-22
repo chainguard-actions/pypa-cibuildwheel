@@ -1,0 +1,45 @@
+name: Test basic usage (empty build selection allowed)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # Select only a macOS identifier so no Linux container is needed.
+      CIBW_BUILD: cp312-macosx_x86_64
+      CIBW_ALLOW_EMPTY: "true"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Clean output dir
+        run: rm -rf "$GITHUB_WORKSPACE/test-wheelhouse"
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg
+          output-dir: test-wheelhouse
+      - name: Assert output dir created and empty
+        run: |
+          ls -la "$GITHUB_WORKSPACE/test-wheelhouse" || true
+          if [ ! -d "$GITHUB_WORKSPACE/test-wheelhouse" ]; then
+            echo "FAIL: output dir was not created"
+            exit 1
+          fi
+          count=$(find "$GITHUB_WORKSPACE/test-wheelhouse" -name '*.whl' | wc -l)
+          if [ "$count" -ne 0 ]; then
+            echo "FAIL: expected no wheels, found $count"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert cibuildwheel installed in clean bin dir
+        run: |
+          ls -la "$RUNNER_TEMP/cibw/bin.clean" || true
+          if [ ! -e "$RUNNER_TEMP/cibw/bin.clean/cibuildwheel" ]; then
+            echo "FAIL: cibuildwheel not exposed in clean bin dir"
+            exit 1
+          fi
+          if [ -e "$RUNNER_TEMP/cibw/bin.clean/uv" ]; then
+            echo "FAIL: uv should not be exposed without the uv extra"
+            exit 1
+          fi
+          "$RUNNER_TEMP/cibw/bin.clean/cibuildwheel" --help > /dev/null
+          echo "PASS"
