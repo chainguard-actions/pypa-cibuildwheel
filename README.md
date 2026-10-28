@@ -6,20 +6,20 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 
 ## Versions
 
-| Version | Tag | Upstream commit |
-|---------|-----|-----------------|
-| v2.23.4 | [`v2.23.4`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v2.23.4) | [`e5486e0`](https://github.com/pypa/cibuildwheel/commit/e5486e0b831d3a4954f271c2a053fbbc0e227d6a) |
-| v3.4.1 | [`v3.4.1`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v3.4.1) | [`8d2b08b`](https://github.com/pypa/cibuildwheel/commit/8d2b08b68458a16aeb24b64e68a09ab1c8e82084) |
-| v4.0.0 | [`v4.0.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.0.0) | [`f03ac76`](https://github.com/pypa/cibuildwheel/commit/f03ac7617d6cff873ccf24cc0d567ef5ba5a9e6d) |
-| v4.1.0 | [`v4.1.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.1.0) | [`2947353`](https://github.com/pypa/cibuildwheel/commit/294735312765b09d24a2fbec22660ce817587d55) |
-| v4.1.1 | [`v4.1.1`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.1.1) | [`4726cd3`](https://github.com/pypa/cibuildwheel/commit/4726cd35bb13f7bde50cf2761f2499ac7b3aa32c) |
-| v4.2.0 | [`v4.2.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.2.0) | [`1828c10`](https://github.com/pypa/cibuildwheel/commit/1828c10ab37f080699c7b81cea34097c684a7074) |
-| v4.2.1 | [`v4.2.1`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.2.1) | [`e090b81`](https://github.com/pypa/cibuildwheel/commit/e090b81e30c4d855ea63bf4b6e59204c09a101ae) |
-| v4.3.0 | [`v4.3.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.0) | [`adba99c`](https://github.com/pypa/cibuildwheel/commit/adba99c781d3746d38b3a09b1cf797965bcb7fe6) |
-| v4.3.1 | [`v4.3.1`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.1) | [`b3395e2`](https://github.com/pypa/cibuildwheel/commit/b3395e271a35f73dad77f21802abe9b986dfe299) |
-| v4.3.2 | [`v4.3.2`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.2) | [`f111813`](https://github.com/pypa/cibuildwheel/commit/f11181315571b24e4a3c67f1a828532793f2df55) |
-| v4.3.3 | [`v4.3.3`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.3) | [`8c2dcd2`](https://github.com/pypa/cibuildwheel/commit/8c2dcd2e96041a619f5ff03c9638d7941e2553a4) |
-| v4.3.4 | [`v4.3.4`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.4) | [`b9e566a`](https://github.com/pypa/cibuildwheel/commit/b9e566a2b284570af229f6c2a33673410d0389a3) |
+| Version | Tag | Upstream commit | Hardening report |
+|---------|-----|-----------------|------------------|
+| v2.23.4 | [`v2.23.4`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v2.23.4) | [`e5486e0`](https://github.com/pypa/cibuildwheel/commit/e5486e0b831d3a4954f271c2a053fbbc0e227d6a) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v2.23.4/HARDENING.md) |
+| v3.4.1 | [`v3.4.1`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v3.4.1) | [`8d2b08b`](https://github.com/pypa/cibuildwheel/commit/8d2b08b68458a16aeb24b64e68a09ab1c8e82084) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v3.4.1/HARDENING.md) |
+| v4.0.0 | [`v4.0.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.0.0) | [`f03ac76`](https://github.com/pypa/cibuildwheel/commit/f03ac7617d6cff873ccf24cc0d567ef5ba5a9e6d) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v4.0.0/HARDENING.md) |
+| v4.1.0 | [`v4.1.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.1.0) | [`2947353`](https://github.com/pypa/cibuildwheel/commit/294735312765b09d24a2fbec22660ce817587d55) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v4.1.0/HARDENING.md) |
+| v4.1.1 | [`v4.1.1`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.1.1) | [`4726cd3`](https://github.com/pypa/cibuildwheel/commit/4726cd35bb13f7bde50cf2761f2499ac7b3aa32c) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v4.1.1/HARDENING.md) |
+| v4.2.0 | [`v4.2.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.2.0) | [`1828c10`](https://github.com/pypa/cibuildwheel/commit/1828c10ab37f080699c7b81cea34097c684a7074) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v4.2.0/HARDENING.md) |
+| v4.2.1 | [`v4.2.1`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.2.1) | [`e090b81`](https://github.com/pypa/cibuildwheel/commit/e090b81e30c4d855ea63bf4b6e59204c09a101ae) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v4.2.1/HARDENING.md) |
+| v4.3.0 | [`v4.3.0`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.0) | [`adba99c`](https://github.com/pypa/cibuildwheel/commit/adba99c781d3746d38b3a09b1cf797965bcb7fe6) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v4.3.0/HARDENING.md) |
+| v4.3.1 | [`v4.3.1`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.1) | [`b3395e2`](https://github.com/pypa/cibuildwheel/commit/b3395e271a35f73dad77f21802abe9b986dfe299) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v4.3.1/HARDENING.md) |
+| v4.3.2 | [`v4.3.2`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.2) | [`f111813`](https://github.com/pypa/cibuildwheel/commit/f11181315571b24e4a3c67f1a828532793f2df55) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v4.3.2/HARDENING.md) |
+| v4.3.3 | [`v4.3.3`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.3) | [`8c2dcd2`](https://github.com/pypa/cibuildwheel/commit/8c2dcd2e96041a619f5ff03c9638d7941e2553a4) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v4.3.3/HARDENING.md) |
+| v4.3.4 | [`v4.3.4`](https://github.com/chainguard-actions/pypa-cibuildwheel/tree/v4.3.4) | [`b9e566a`](https://github.com/pypa/cibuildwheel/commit/b9e566a2b284570af229f6c2a33673410d0389a3) | [`HARDENING.md`](https://github.com/chainguard-actions/pypa-cibuildwheel/blob/v4.3.4/HARDENING.md) |
 
 ## Privacy
 
