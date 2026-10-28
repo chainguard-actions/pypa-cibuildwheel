@@ -1,0 +1,31 @@
+name: Test config-file input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CIBW_ALLOW_EMPTY: "1"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg
+          output-dir: config-wheelhouse
+          # skip = "*" comes only from this config file; without it,
+          # cibuildwheel would try to start manylinux containers.
+          config-file: tests/fixtures/cibw-skip-all.toml
+      - name: Assert output dir was created and empty
+        run: |
+          if [ ! -d "$GITHUB_WORKSPACE/config-wheelhouse" ]; then
+            echo "FAIL: output dir config-wheelhouse not created"
+            exit 1
+          fi
+          COUNT=$(find "$GITHUB_WORKSPACE/config-wheelhouse" -name '*.whl' | wc -l)
+          echo "wheels: $COUNT"
+          if [ "$COUNT" -ne 0 ]; then
+            echo "FAIL: expected no wheels"
+            exit 1
+          fi
+          echo "PASS"

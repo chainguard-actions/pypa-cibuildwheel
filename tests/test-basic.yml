@@ -1,0 +1,52 @@
+name: Test basic usage (empty build selection, no container needed)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CIBW_SKIP: "*"
+      CIBW_ALLOW_EMPTY: "1"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          package-dir: tests/fixtures/pkg
+          output-dir: basic-wheelhouse
+      - name: Assert cibuildwheel was installed into the venv
+        run: |
+          ls -la "$RUNNER_TEMP/cibw" || true
+          ls -la "$RUNNER_TEMP/cibw/bin.clean" || true
+          if [ ! -e "$RUNNER_TEMP/cibw/bin.clean/cibuildwheel" ]; then
+            echo "FAIL: cibuildwheel not exposed in $RUNNER_TEMP/cibw/bin.clean"
+            exit 1
+          fi
+          if [ -e "$RUNNER_TEMP/cibw/bin.clean/uv" ]; then
+            echo "FAIL: uv should not be exposed without the uv extra"
+            exit 1
+          fi
+          HELP="$("$RUNNER_TEMP/cibw/bin.clean/cibuildwheel" --help 2>&1)" || {
+            echo "$HELP"
+            echo "FAIL: cibuildwheel --help failed"
+            exit 1
+          }
+          echo "$HELP" | head -n 5
+          if ! echo "$HELP" | grep -q "usage: cibuildwheel"; then
+            echo "FAIL: unexpected --help output"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert output dir was created
+        run: |
+          if [ ! -d "$GITHUB_WORKSPACE/basic-wheelhouse" ]; then
+            echo "FAIL: output dir basic-wheelhouse not created"
+            exit 1
+          fi
+          COUNT=$(find "$GITHUB_WORKSPACE/basic-wheelhouse" -name '*.whl' | wc -l)
+          echo "wheels: $COUNT"
+          if [ "$COUNT" -ne 0 ]; then
+            echo "FAIL: expected no wheels since all builds were skipped"
+            exit 1
+          fi
+          echo "PASS"
