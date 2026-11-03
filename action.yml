@@ -49,7 +49,7 @@ runs:
         curl "${args[@]}" \
           -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
           "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
-    - uses: chainguard-actions/actions-setup-python@9bc81c95771c379a24d235203ec35ccbac904e5a # v7.0.0
+    - uses: chainguard-actions/actions-setup-python@24f2557281e8fd257a484c61922bc54778c2d7ba # v7.0.0
       id: python
       # Only use setup-python when no interpreter was supplied and the
       # runner architecture is supported.
